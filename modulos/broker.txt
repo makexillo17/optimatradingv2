@@ -1,0 +1,56 @@
+**Hoja Informativa del Módulo: Broker Behavior**
+
+---
+
+**Nombre del módulo:** `broker_behavior`
+
+**Propósito:**
+Analizar el comportamiento de los brokers tipo B y tipo C para identificar posibles manipulaciones, conflictos de interés o estrategias de cobertura que puedan anticipar movimientos de mercado. Este módulo detecta si el broker actúa como contraparte (B-book) o si reenvía órdenes al mercado (C-book) y analiza patrones de ejecución sospechosos.
+
+**Tipo de señales esperadas:**
+
+* `long`: si se detecta intención de manipulación o cobertura que indica posible subida del activo.
+* `short`: si se detecta cobertura agresiva o manipulación a la baja.
+* `neutral`: comportamiento sin señales evidentes.
+
+**Fuentes de datos necesarias:**
+
+* API de Binance (ordenes, ejecuciones, latencia)
+* API de Polygon.io (flujo de ordenes institucionales)
+* API de Ninja APIs (para comparación con corredores no-cripto si aplica)
+
+**Parámetros clave:**
+
+* Tiempos de ejecución anómalos
+* Diferencia entre órdenes visibles y ejecutadas
+* Spread vs. comportamiento de entrada
+* Volúmen de rechazo o "requotes"
+
+**Modelo matemático o técnico:**
+
+* Comparación de tasas de ejecución (slippage promedio)
+* Ratio de latencia vs. volatilidad
+* Medición de asimetría entre oferta-demanda y respuesta del broker
+
+**Ejemplo de uso histórico:**
+En octubre de 2021, varios traders detectaron ejecuciones irregulares durante un impulso de BTC. Al analizar los datos del broker, se encontraron retrasos consistentes y spreads artificialmente amplios, lo cual anticipó una corrección brusca.
+
+**Limitaciones:**
+
+* No todos los brokers publican data abierta
+* Puede confundirse manipulación con iliquidez
+* En criptos, la transparencia es mayor, pero no está garantizada
+
+**Complementariedad:**
+
+* SMC/ICT: valida si el broker actúa cerca de zonas de liquidez
+* Liquidity Provision: compara con comportamiento normal del libro
+* Market Making: verifica si hay presión de creadores de mercado
+
+**Frecuencia de actualización:**
+Idealmente cada 5 segundos o al menos cada nuevo bloque de transacciones (para cripto, cada 10 seg aprox.)
+
+**Dependencias técnicas:**
+
+* `requests`, `pandas`, `numpy`, `websockets`
+* Acceso en tiempo real a libros de órdenes y ejecuciones

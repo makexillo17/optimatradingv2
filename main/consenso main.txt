@@ -1,0 +1,100 @@
+**Hoja Informativa del Módulo: Main (Consenso y Veredicto Final)**
+
+---
+
+**Nombre del módulo:** `main`
+
+**Propósito:**
+Integrar los resultados individuales de los 10 módulos de análisis y generar un veredicto final consolidado sobre la acción de trading más recomendable (LONG, SHORT, NEUTRAL). Este módulo actúa como la capa de decisión superior del sistema Optimatrading.
+
+**Entradas (inputs):**
+
+* Salidas de los 10 módulos: cada uno entrega:
+
+  * tipo de señal (`long`, `short`, `neutral`)
+  * nivel de confianza (valor entre 0 y 1)
+  * justificaciones técnicas (texto y metadatos)
+* Parámetros de ponderación por módulo (opcional, configurable)
+
+**Lógica del algoritmo:**
+
+1. **Normalización de confiabilidad:**
+
+   * Se asigna un peso proporcional al nivel de confianza de cada módulo
+   * Se puede aplicar una ponderación ajustada por rendimiento histórico o relevancia de contexto
+
+2. **Conteo ponderado de señales:**
+
+   * Se suman los pesos normalizados por tipo de señal
+   * Ejemplo:
+
+     * Long: 2.8
+     * Short: 4.1
+     * Neutral: 3.1
+
+3. **Veredicto final:**
+
+   * Se selecciona el tipo con mayor peso agregado
+   * Se genera una confianza total: suma de pesos ganadores / suma total de pesos
+   * Se determina una categoría de confianza (alta, media, baja)
+
+4. **Justificación agregada:**
+
+   * Se extraen las justificaciones de los 3 módulos con mayor peso del tipo dominante
+   * Se formatea una explicación natural del porqué del veredicto final
+
+5. **Fallback por falta de consenso:**
+
+   * Si la diferencia entre el primer y segundo tipo es menor al 10%, se considera `neutral`
+
+**Salidas (outputs):**
+
+* Veredicto final (`long`, `short`, `neutral`)
+* Confianza total en % y categoría (por ejemplo: 74.3%, media)
+* Justificación técnica resumida (texto)
+* Tabla resumen de votos y confianza por módulo
+
+**Modelo técnico-matemático:**
+
+* Ponderación basada en:
+  $W_i = c_i \cdot p_i$
+  donde:
+
+  * $W_i$: peso ponderado del módulo i
+  * $c_i$: confianza reportada por el módulo i
+  * $p_i$: ponderación manual o dinámica
+
+* Suma por categoría:
+  $S_{long} = \sum_{i \in L} W_i \quad \text{y similar para } S_{short}, S_{neutral}$
+
+* Confianza del sistema:
+  $C_{sistema} = \frac{\max(S_{long}, S_{short}, S_{neutral})}{\sum W_i}$
+
+**Complementariedad:**
+
+* Recoge los resultados directos del `dispatcher`
+* Su salida alimenta directamente al dashboard y a los posibles sistemas de alerta / ejecución
+
+**Ejemplo de uso:**
+
+* El sistema analiza BTCUSDT:
+
+  * 4 módulos dan `short` con alta confianza
+  * 3 dan `neutral`
+  * 3 dan `long`, pero con baja confianza
+  * Resultado final: `short` con confianza de 72.5%
+
+**Limitaciones:**
+
+* Depende completamente de la calidad y diversidad de los módulos base
+* Ponderaciones erróneas pueden sesgar decisiones
+
+**Dependencias:**
+
+* `numpy`, `pandas`, `json`
+* Resultados previos estructurados correctamente (estándares del dispatcher)
+
+**Frecuencia de ejecución:**
+
+* Cada vez que se actualizan los resultados de módulos
+* Puede ejecutarse cada 1, 5 o 15 minutos

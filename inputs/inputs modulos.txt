@@ -1,0 +1,38 @@
+# Archivo: inputs_por_modulo.py
+"""
+Este archivo define los inputs requeridos por cada uno de los 10 módulos de análisis de trading
+para asegurar que el sistema cargue y distribuya correctamente la información desde el loader.
+"""
+
+INPUTS_REQUERIDOS = {
+    "broker_behavior": [
+        "order_book", "trades", "price", "volume", "liquidity_zones"
+    ],
+    "carry_trade": [
+        "spot_price", "futures_price", "funding_rate", "interest_rate_difference"
+    ],
+    "dynamic_hedging": [
+        "spot_price", "options_data", "implied_volatility", "realized_volatility"
+    ],
+    "liquidity_provision": [
+        "order_book", "spread", "depth", "volume_concentration"
+    ],
+    "market_making": [
+        "order_book", "recent_trades", "spread", "volatility"
+    ],
+    "pairs_trading": [
+        "pair_prices", "correlation", "z_score", "spread"
+    ],
+    "smc_ict": [
+        "candlestick_data", "market_structure", "fair_value_gaps", "order_blocks"
+    ],
+    "stat_arb": [
+        "historical_prices", "log_spread", "z_score", "stationarity_test"
+    ],
+    "volatility_arb": [
+        "implied_volatility", "realized_volatility", "spot_data"
+    ],
+    "yield_anomaly": [
+        "spot_price", "perpetual_price", "funding_rate", "annualized_yield"
+    ]
+}

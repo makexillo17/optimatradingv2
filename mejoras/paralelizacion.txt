@@ -1,0 +1,18 @@
+Paralelización (Propuesta de Mejora)
+Propósito: Ejecutar todos los módulos de análisis en paralelo para reducir el tiempo total de procesamiento y aprovechar mejor los recursos del sistema.
+
+Requerimientos Técnicos:
+
+Uso de librerías como concurrent.futures, multiprocessing, o asyncio.
+
+Controlador que lance tareas en paralelo y recoja los resultados de cada módulo.
+
+Sincronización segura entre procesos/hilos para evitar conflictos de datos.
+
+Aplicación:
+
+Al momento de iniciar los análisis desde dispatcher.py, cada módulo puede ser ejecutado como tarea independiente.
+
+Resultados se recogen en una estructura común (por ejemplo, una cola compartida o lista de futuros).
+
+Estado Actual: No implementado. El sistema es secuencial en su forma básica. La arquitectura modular facilita la futura implementación paralela.

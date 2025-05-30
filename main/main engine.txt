@@ -1,0 +1,57 @@
+# Archivo: main_engine.py
+"""
+Este archivo representa el "cerebro" del sistema Optimatrading.
+El Main Engine orquesta toda la operación: carga los datos, los distribuye a los módulos,
+coordina las ejecuciones, y recopila resultados para su visualización y explicación final.
+"""
+
+class MainEngine:
+    def __init__(self, loader, dispatcher, modulos):
+        self.loader = loader
+        self.dispatcher = dispatcher
+        self.modulos = modulos  # Lista de instancias de módulos de análisis
+        self.resultados_modulos = {}
+        self.resultado_final = None
+
+    def ejecutar_analisis(self, activos):
+        """
+        Ejecuta el análisis completo sobre los activos seleccionados.
+        """
+        # Distribuir datos a los módulos
+        datos_por_modulo = self.dispatcher.distribuir_datos(activos, self.modulos)
+
+        # Ejecutar cada módulo con sus datos correspondientes
+        for modulo in self.modulos:
+            inputs = datos_por_modulo.get(modulo.nombre, {})
+            resultado = modulo.ejecutar(inputs)
+            self.resultados_modulos[modulo.nombre] = resultado
+
+        # Obtener resultado final del sistema (por ahora como consenso simple)
+        self.resultado_final = self.generar_consenso()
+        return self.resultado_final
+
+    def generar_consenso(self):
+        """
+        Analiza los resultados de los módulos y genera una señal consolidada.
+        Por ahora, devuelve un resumen simple con conteo de recomendaciones.
+        """
+        resumen = {"long": 0, "short": 0, "neutral": 0}
+        for resultado in self.resultados_modulos.values():
+            if resultado in resumen:
+                resumen[resultado] += 1
+
+        # Decisión simple por mayoría
+        decision = max(resumen, key=resumen.get)
+        return {
+            "resumen": resumen,
+            "decision_final": decision
+        }
+
+    def exportar_resultados(self):
+        """
+        Devuelve los resultados por módulo y la decisión final.
+        """
+        return {
+            "modulos": self.resultados_modulos,
+            "main_resultado": self.resultado_final
+        }

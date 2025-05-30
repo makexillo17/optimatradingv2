@@ -1,0 +1,54 @@
+# Archivo: fuentes_inputs_api.py
+"""
+Este archivo define de qué API debe obtenerse cada input requerido para los módulos de análisis.
+Esta información será utilizada por el loader para dirigir las peticiones de forma correcta.
+"""
+
+
+FUENTES_INPUTS_API = {
+    # Binance (SPOT, Futures, Order Book, Trades, Volumen, Funding)
+    "order_book": "binance",
+    "trades": "binance",
+    "price": "binance",
+    "volume": "binance",
+    "funding_rate": "binance",
+    "spot_price": "binance",
+    "futures_price": "binance",
+    "perpetual_price": "binance",
+    "depth": "binance",
+    "recent_trades": "binance",
+    "spread": "binance",
+
+    # Deribit (Opciones)
+    "options_data": "deribit",
+    "implied_volatility": "deribit",
+
+    # Realized volatility (Finnhub / cálculo propio)
+    "realized_volatility": "finnhub",
+
+    # Polygon.io (precios históricos, pares, correlaciones)
+    "pair_prices": "polygon.io",
+    "historical_prices": "polygon.io",
+    "log_spread": "polygon.io",
+    "z_score": "polygon.io",
+    "correlation": "polygon.io",
+    "stationarity_test": "polygon.io",
+
+    # Twelve Data (velas)
+    "candlestick_data": "twelve_data",
+
+    # Algoritmos propios (estructura de mercado, gaps, bloques de órdenes, zonas de liquidez)
+    "market_structure": "interno",
+    "fair_value_gaps": "interno",
+    "order_blocks": "interno",
+    "liquidity_zones": "interno",
+
+    # Financiamiento anualizado (cálculo interno)
+    "annualized_yield": "interno",
+
+    # Tasas de interés (AlphaVantage o Ninja APIs)
+    "interest_rate_difference": "alphavantage"
+}
+
+# Esta tabla será usada por el loader para decidir qué API utilizar al cargar cada dato.
+

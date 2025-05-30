@@ -1,0 +1,57 @@
+**Hoja Informativa del Módulo: Smart Money Concepts / ICT**
+
+---
+
+**Nombre del módulo:** `smc_ict`
+
+**Propósito:**
+Analizar patrones de comportamiento institucional en el precio utilizando conceptos derivados de Smart Money Concepts (SMC) e Inner Circle Trader (ICT). Busca identificar zonas de liquidez, desequilibrios y estructuras de mercado que anticipan movimientos relevantes.
+
+**Tipo de señales esperadas:**
+
+* `long`: ruptura de estructura al alza tras barrido de liquidez y FVG alcista
+* `short`: ruptura de estructura a la baja tras barrido de liquidez y FVG bajista
+* `neutral`: estructura indefinida o sin validaciones claras
+
+**Fuentes de datos necesarias:**
+
+* Velas OHLCV en resoluciones de 1m a 15m
+* Datos de volumen para confirmar liquidez y barridos
+* APIs: Binance, Polygon.io, Twelve Data (si da OHLCV), Finnhub (soporte alterno)
+
+**Parámetros clave:**
+
+* BOS (Break of Structure)
+* FVG (Fair Value Gap)
+* Liquidity Sweep (barrido de mínimos/máximos previos)
+* Order Blocks (zonas de consolidación antes del BOS)
+* Equilibrio de mercado (mitad del FVG)
+
+**Modelo matemático o técnico:**
+
+* Identificación de estructura de mercado (altos y bajos significativos)
+* Confirmación con rupturas (BOS) y detección de zonas de desequilibrio (FVG)
+* Evaluación de liquidez: detección de áreas con alto volumen que han sido barridas
+
+**Ejemplo de uso histórico:**
+En junio de 2022, BTCUSDT mostró un BOS al alza tras una barrida de mínimo semanal seguida de un gap de valor justo. La entrada en el order block dio un recorrido de +7% antes de que se cerrara el gap y el precio retomara su tendencia alcista.
+
+**Limitaciones:**
+
+* Requiere interpretación subjetiva si no se automatiza bien
+* Necesita limpieza en detección de BOS y zonas de liquidez para evitar falsas señales
+
+**Complementariedad:**
+
+* `volatility_arb`: ayuda a entender si la ruptura está respaldada por un cambio de régimen de volatilidad
+* `market_making`: puede ayudar a validar zonas de absorción previa al movimiento
+
+**Frecuencia de actualización:**
+
+* Cada 1 a 5 minutos, preferentemente tras el cierre de una vela
+
+**Dependencias técnicas:**
+
+* `numpy`, `pandas`, `ta`, `matplotlib`, `plotly`, `pivottablejs`
+* Algoritmos de detección de BOS, FVG, y zonas de liquidez
+* Visualización de estructura de mercado para depuración manual

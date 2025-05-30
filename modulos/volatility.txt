@@ -1,0 +1,60 @@
+**Hoja Informativa del Módulo: Volatility Arbitrage**
+
+---
+
+**Nombre del módulo:** `volatility_arb`
+
+**Propósito:**
+Identificar oportunidades de arbitraje entre la volatilidad implícita (IV) y la volatilidad realizada (RV) para activos derivados como opciones, basándose en la premisa de que el mercado tiende a sobreestimar o subestimar la volatilidad futura.
+
+**Tipo de señales esperadas:**
+
+* `long`: la volatilidad implícita está por debajo de la realizada (el activo está infravalorado en términos de riesgo)
+* `short`: la volatilidad implícita está por encima de la realizada (el activo está sobrevalorado en términos de riesgo)
+* `neutral`: las volatilidades son similares o no hay sesgo aprovechable
+
+**Fuentes de datos necesarias:**
+
+* API de Deribit o Binance (para obtener IV de opciones)
+* API de Binance (para obtener precios spot y calcular RV)
+
+**Parámetros clave:**
+
+* Volatilidad implícita (de opciones ATM)
+* Volatilidad realizada (desviación estándar log-retornos)
+* Δ (delta), γ (gamma) si se considera sensibilidad de opciones
+* Time to maturity (para estimación precisa de IV)
+
+**Modelo matemático o técnico:**
+
+* Cálculo de RV:
+  $RV = \sqrt{\frac{252}{n-1} \sum_{i=1}^{n}(\ln(P_{i}/P_{i-1}))^2}$
+
+* Comparación con IV:
+  $Spread = IV - RV$
+
+* Decisión de estrategia:
+
+  * Si `Spread > umbral superior`, señal de `short`
+  * Si `Spread < umbral inferior`, señal de `long`
+
+**Ejemplo de uso histórico:**
+Durante eventos como la caída de Terra/LUNA, la volatilidad implícita en opciones sobre BTC y ETH se disparó mientras la volatilidad realizada aún no lo reflejaba, permitiendo oportunidades de arbitraje para traders expertos.
+
+**Limitaciones:**
+
+* Requiere datos confiables y gran precisión en la estimación de IV y RV
+* No funciona bien si los precios de las opciones son ilíquidos o distorsionados
+
+**Complementariedad:**
+
+* `dynamic_hedging`: se complementan en escenarios de cobertura con opciones
+* `market_making`: puede informar sobre condiciones de riesgo que afectan precios
+
+**Frecuencia de actualización:**
+Cada 15-30 segundos (opcionalmente cada vez que cambie el IV o RV)
+
+**Dependencias técnicas:**
+
+* `numpy`, `pandas`, `requests`, `scipy`
+* Acceso a precios spot y precios de opciones (IV) en tiempo real

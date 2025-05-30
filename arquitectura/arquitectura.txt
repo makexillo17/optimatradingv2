@@ -1,0 +1,34 @@
+# Archivo: arquitectura_optima.py
+"""
+Define la lógica general de arquitectura de Optimatrading.
+Contiene: flujo de datos, separación modular, integración futura y diseño escalable.
+Este archivo no ejecuta código, solo sirve como referencia estructural del sistema.
+"""
+
+ARQUITECTURA_OPTIMATRADING = {
+    "componentes": [
+        "loader",         # Recolecta los datos desde APIs según fuentes definidas
+        "dispatcher",     # Reparte los datos del loader a los módulos de análisis
+        "modulos",        # 10 módulos de análisis independientes
+        "main",           # Analiza los resultados de los módulos y emite veredicto
+        "explainer",      # Analiza y explica en lenguaje natural el resultado
+        "dashboard"       # Interfaz de visualización de todos los análisis
+    ],
+    "flujo_de_datos": [
+        "loader -> dispatcher -> modulos -> main -> explainer/dashboard"
+    ],
+    "principios": [
+        "Modularidad", 
+        "Escalabilidad",
+        "Separación de responsabilidades",
+        "Integración de APIs externas",
+        "Explicabilidad (via GPT)"
+    ],
+    "futuras_extensiones": [
+        "Backtesting",
+        "Nuevos activos",
+        "Más módulos analíticos",
+        "Métricas de rendimiento",
+        "Configuración dinámica de parámetros"
+    ]
+}

@@ -1,0 +1,38 @@
+ Métricas de Rendimiento (Propuesta de Mejora)
+Propósito: Evaluar de forma objetiva la efectividad de cada módulo de análisis y del sistema completo Optimatrading en condiciones tanto históricas como en tiempo real.
+
+Requerimientos:
+
+Registro detallado de cada señal generada por cada módulo.
+
+Resultados del comportamiento hipotético de dichas señales (ej. si se aplicaron en un backtesting o live trading simulado).
+
+Métricas Clave a Implementar por Módulo:
+
+Precisión de la señal (%): Proporción de señales correctas respecto al total emitido.
+
+Tasa de acierto: Número de operaciones ganadoras dividido entre el total de operaciones.
+
+Pérdida máxima (Max Drawdown): Pérdida máxima registrada desde un pico a un valle.
+
+Profit Factor: Ganancia total / Pérdida total.
+
+Sharpe Ratio: Rentabilidad ajustada por riesgo (media del rendimiento – tasa libre de riesgo / desviación estándar del rendimiento).
+
+Promedio de rendimiento por operación: Media de ganancia/pérdida de cada operación.
+
+Métricas Globales del Sistema (nivel de main):
+
+Consenso entre módulos: Qué tan seguido los módulos coinciden en señales similares.
+
+Rendimiento agregado de señales múltiples: Promedio de retorno ponderado por módulo.
+
+Diversificación efectiva: Qué tanto los módulos están proporcionando señales independientes o redundantes.
+
+Visualización Sugerida:
+
+Panel gráfico con rendimiento por módulo.
+
+Tabla resumen por activo y por período.
+
+Histórico de señales exitosas vs. fallidas.

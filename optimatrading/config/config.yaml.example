@@ -1,0 +1,168 @@
+# Configuración de ejemplo para Optimatrading
+# Renombrar a config.yaml y ajustar valores según necesidad
+
+# Configuración de APIs
+apis:
+  binance:
+    api_key: "XmLESrJh1AbAlYOmypUCC9RJINw1HSQ6RXn5Tv5QJSKFjTulEt3udYDK6f25pdOE
+"
+    api_secret: "nLsWOjlQCejtUovFtKN2tETBuVPZELDFcsAKDCPJztVDtTVbYKV6UEyeX4EmxDHZ"
+    testnet: false
+    timeout: 30
+    rate_limit: true
+  
+  finnhub:
+    api_key: "d0q0se1r01qmj4nhbvf0d0q0se1r01qmj4nhbvfg"
+    timeout: 30
+    
+  alpha_vantage:
+    api_key: "5B7F2RFD6B09AWOU"
+    timeout: 30
+
+# Configuración de Redis
+redis:
+  host: "localhost"
+  port: 6379
+  db: 0
+  default_ttl: 3600  # 1 hora
+  socket_timeout: 5
+  socket_connect_timeout: 5
+  retry_on_timeout: true
+  max_connections: 10
+
+# Configuración de Logging
+logging:
+  console:
+    level: "INFO"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file:
+    level: "DEBUG"
+    format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    directory: "logs"
+    max_size_mb: 100
+    backup_count: 5
+  prometheus:
+    enabled: true
+    port: 9090
+
+# Módulos de Análisis
+modules:
+  broker_behavior:
+    enabled: true
+    weight: 1.0
+    timeframe: "1h"
+    lookback_periods: 24
+    min_volume: 1000000
+    timeout: 30
+    
+  carry_trade:
+    enabled: true
+    weight: 1.0
+    min_rate_diff: 0.02
+    funding_rate_threshold: 0.001
+    update_interval: 3600
+    
+  dynamic_hedging:
+    enabled: true
+    weight: 1.0
+    rebalance_threshold: 0.05
+    max_position_size: 1.0
+    hedge_ratio: 1.0
+    
+  liquidity_provision:
+    enabled: true
+    weight: 1.0
+    min_liquidity: 1000000
+    spread_threshold: 0.001
+    depth_levels: 10
+    
+  market_making:
+    enabled: true
+    weight: 1.0
+    max_spread: 0.002
+    min_profit: 0.001
+    inventory_limits:
+      max_long: 1.0
+      max_short: 1.0
+    
+  pairs_trading:
+    enabled: true
+    weight: 1.0
+    correlation_threshold: 0.8
+    zscore_threshold: 2.0
+    lookback_periods: 100
+    
+  smc_ict:
+    enabled: true
+    weight: 1.0
+    timeframes: ["1h", "4h", "1d"]
+    key_levels:
+      support_resistance: true
+      liquidity_levels: true
+      fair_value_gaps: true
+    
+  statistical_arbitrage:
+    enabled: true
+    weight: 1.0
+    min_correlation: -0.8
+    max_correlation: 0.8
+    window_size: 100
+    
+  volatility_arbitrage:
+    enabled: true
+    weight: 1.0
+    min_vol_spread: 0.02
+    update_interval: 300
+    
+  yield_anomaly:
+    enabled: true
+    weight: 1.0
+    min_yield_diff: 0.01
+    rebalance_interval: 86400
+
+# Sistema de Consenso
+consensus:
+  min_confidence: 0.7
+  min_agreement: 0.6
+  weighted_voting: true
+  required_modules: 3
+  timeout: 30
+  cache_results: true
+  cache_ttl: 300
+
+# Validación de Datos
+validation:
+  required_fields:
+    - timestamp
+    - open
+    - high
+    - low
+    - close
+    - volume
+  max_missing_values: 0.1
+  min_periods: 100
+  check_data_quality: true
+
+# Métricas de Rendimiento
+metrics:
+  enabled: true
+  update_interval: 3600
+  store_history: true
+  history_size: 1000
+  calculate:
+    sharpe_ratio: true
+    sortino_ratio: true
+    max_drawdown: true
+    win_rate: true
+    profit_factor: true
+
+# Sistema
+system:
+  max_threads: 4
+  max_memory_mb: 1024
+  debug_mode: false
+  environment: "production"  # production, development, testing
+  data_directory: "data"
+  backup_directory: "backups"
+  max_retries: 3
+  retry_delay: 5 

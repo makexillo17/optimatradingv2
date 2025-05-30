@@ -1,0 +1,84 @@
+# Archivo: dispatcher_logic.py
+"""
+Define la lógica del componente Dispatcher dentro del sistema Optimatrading.
+Este componente se encarga de distribuir los datos obtenidos por el Loader hacia los módulos correspondientes
+para su análisis, asegurando independencia, escalabilidad y trazabilidad.
+"""
+
+class Dispatcher:
+    def __init__(self, data_bundle):
+        """
+        Inicializa el dispatcher con el conjunto de datos completo que proviene del Loader.
+        data_bundle es un diccionario que contiene todos los datos agrupados por nombre de input.
+        """
+        self.data_bundle = data_bundle
+
+    def despachar(self, modulo_nombre: str, requerimientos: list):
+        """
+        Extrae y entrega los datos necesarios para un módulo de análisis específico.
+
+        Args:
+            modulo_nombre (str): Nombre del módulo que solicita los datos (e.g., 'carry_trade')
+            requerimientos (list): Lista de claves de datos requeridas por ese módulo
+
+        Returns:
+            dict: Diccionario con los datos requeridos, listos para ser usados por el módulo
+        """
+        datos_para_modulo = {}
+        for key in requerimientos:
+            if key in self.data_bundle:
+                datos_para_modulo[key] = self.data_bundle[key]
+            else:
+                # Se puede loggear el error o lanzar una excepción si se desea trazabilidad estricta
+                datos_para_modulo[key] = None  # o manejar con datos simulados / advertencia
+        return datos_para_modulo
+
+# Ejemplo de uso esperado:
+# loader -> data_bundle
+# dispatcher = Dispatcher(data_bundle)
+# carry_inputs = dispatcher.despachar('carry_trade', ['interest_rate_difference'])
+# resultado = carry_trade.analyze(carry_inputs)
+# Archivo: dispatcher_logic.py
+"""
+Este archivo define el funcionamiento del Dispatcher, cuya función es distribuir
+la información recolectada por el Loader hacia los módulos de análisis.
+El Dispatcher asegura que cada módulo reciba sólo los datos que necesita.
+"""
+
+from fuentes_inputs_api import FUENTES_INPUTS_API
+
+class Dispatcher:
+    def __init__(self, loader):
+        self.loader = loader
+
+    def distribuir_datos(self, activos: list, modulos: list) -> dict:
+        """
+        Recolecta y distribuye los datos necesarios para cada módulo de análisis.
+
+        Args:
+            activos (list): Lista de activos a analizar (e.g., ['BTCUSDT', 'ETHUSDT'])
+            modulos (list): Lista de módulos activos a alimentar
+
+        Returns:
+            dict: Diccionario con datos organizados por módulo
+        """
+        datos_distribuidos = {}
+
+        for modulo in modulos:
+            datos_distribuidos[modulo.nombre] = {}
+            for input_necesario in modulo.inputs:
+                fuente = FUENTES_INPUTS_API.get(input_necesario)
+                if fuente:
+                    datos = self.loader.obtener_dato(input_necesario, activos, fuente)
+                    datos_distribuidos[modulo.nombre][input_necesario] = datos
+                else:
+                    datos_distribuidos[modulo.nombre][input_necesario] = None
+        
+        return datos_distribuidos
+
+"""
+Notas:
+- Este Dispatcher trabaja en conjunto con el archivo `fuentes_inputs_api.py` para saber
+  de dónde viene cada input.
+- Los módulos deben tener una propiedad `.inputs` que liste los datos que necesitan.
+"""

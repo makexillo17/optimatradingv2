@@ -1,0 +1,62 @@
+# dispatcher.py
+"""
+Dispatcher Module for Optimatrading
+Receives normalized data from the loader and dispatches it to each analysis module.
+Collects responses and returns them to main for consensus analysis.
+"""
+
+import logging
+from modules import (
+    broker_behavior,
+    carry_trade,
+    dynamic_hedging,
+    liquidity_provision,
+    market_making,
+    pairs_trading,
+    smc_ict,
+    stat_arb,
+    volatility_arb,
+    yield_anomaly
+)
+
+logger = logging.getLogger(__name__)
+
+MODULES = {
+    "broker_behavior": broker_behavior,
+    "carry_trade": carry_trade,
+    "dynamic_hedging": dynamic_hedging,
+    "liquidity_provision": liquidity_provision,
+    "market_making": market_making,
+    "pairs_trading": pairs_trading,
+    "smc_ict": smc_ict,
+    "stat_arb": stat_arb,
+    "volatility_arb": volatility_arb,
+    "yield_anomaly": yield_anomaly
+}
+
+def dispatch_to_modules(data: dict) -> list:
+    """
+    Sends input data to each module's analyze() method and collects their outputs.
+    
+    Args:
+        data (dict): Dictionary of input data, organized by what each module needs.
+
+    Returns:
+        List[dict]: Output signals from each module.
+    """
+    results = []
+    for name, module in MODULES.items():
+        try:
+            logger.info(f"Dispatching to module: {name}")
+            result = module.analyze(data)
+            result["modulo"] = name
+            results.append(result)
+        except Exception as e:
+            logger.error(f"Failed to execute module {name}: {e}")
+            results.append({
+                "modulo": name,
+                "recomendacion": "neutral",
+                "confianza": 0.0,
+                "justificacion": f"Error in module {name}: {str(e)}"
+            })
+    return results

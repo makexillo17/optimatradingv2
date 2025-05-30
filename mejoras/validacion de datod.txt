@@ -1,0 +1,18 @@
+Validación de Datos (Propuesta de Mejora)
+Propósito: Garantizar que todos los datos que entran y salen de los módulos estén completos, tengan el formato correcto y valores válidos.
+
+Requerimientos Técnicos:
+
+Uso de validadores como pydantic, expresiones regulares o validación manual de tipos/formato.
+
+Validaciones mínimas: No NaN, no valores extremos inválidos, tipos correctos (float, list, dict, etc.).
+
+Logging de errores y fallback en caso de datos incompletos.
+
+Aplicación:
+
+Dentro de cada módulo y especialmente en el loader.py.
+
+Antes de hacer cálculos o proyecciones, validar que los datos de entrada cumplen requisitos mínimos.
+
+Estado Actual: Parcialmente implementado en etapas básicas. Requiere estandarización y sistema de validación unificado.

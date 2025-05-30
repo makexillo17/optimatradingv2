@@ -1,0 +1,61 @@
+**Hoja Informativa del Módulo: Statistical Arbitrage**
+
+---
+
+**Nombre del módulo:** `stat_arb`
+
+**Propósito:**
+Detectar oportunidades de trading basadas en desviaciones estadísticamente significativas entre activos correlacionados. Aprovecha la convergencia de precios de instrumentos con comportamiento histórico similar, identificando desequilibrios temporales.
+
+**Tipo de señales esperadas:**
+
+* `long`: comprar el activo infravalorado y vender el sobrevalorado
+* `short`: lo inverso del anterior (cuando la posición revertida es la mejor opción)
+* `neutral`: no hay divergencia estadística significativa
+
+**Fuentes de datos necesarias:**
+
+* Binance (precios históricos de pares altamente correlacionados)
+* Polygon.io / AlphaVantage / TwelveData como respaldo para precios ajustados y series temporales
+
+**Parámetros clave:**
+
+* Spread logarítmico
+* Z-score
+* Correlación móvil (rolling correlation)
+* Test de estacionariedad (ADF Test)
+
+**Modelo matemático o técnico:**
+
+* Cálculo del spread:
+  $Spread_t = \log(P_{1,t}) - \beta \log(P_{2,t})$
+* Z-score:
+  $Z_t = \frac{Spread_t - \mu}{\sigma}$
+* Prueba ADF para confirmar la estacionariedad del spread (indicador de cointegración)
+* Estrategia se activa cuando:
+  $|Z_t| > threshold \Rightarrow entrada$
+  $Z_t \approx 0 \Rightarrow salida$
+
+**Ejemplo de uso histórico:**
+Durante el ciclo de bull market 2021, se detectó cointegración temporal entre ETH y BNB, generando oportunidades repetidas cuando sus precios divergían más de 2 desviaciones estándar y luego convergían.
+
+**Limitaciones:**
+
+* Alta sensibilidad a rupturas estructurales en la relación de los activos
+* Puede fallar si la cointegración no es robusta
+* Requiere backtesting extenso
+
+**Complementariedad:**
+
+* Pairs Trading: se basa en principios similares pero el stat arb es más riguroso y cuantitativo
+* Volatility Arb: puede usarse para validar si la divergencia es temporal o generada por un cambio de volatilidad estructural
+
+**Frecuencia de actualización:**
+Cada 1-5 minutos, idealmente sincronizado con las ventanas de datos para z-score y correlación
+
+**Dependencias técnicas:**
+
+* `numpy`, `pandas`, `statsmodels`, `scipy`
+* Pruebas de cointegración: ADF y Engle-Granger
+* Acceso a series de tiempo continuas y sin huecos
+* Importante: requiere precios logarítmicos sincronizados en tiempo real o semi-tiempo real

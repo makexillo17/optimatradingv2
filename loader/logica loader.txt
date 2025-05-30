@@ -1,0 +1,178 @@
+ Descripción Funcional: loader.py (Sistema de Carga de Datos)
+🧭 Propósito General
+loader.py es el componente central encargado de recolectar toda la información de entrada necesaria para los 10 módulos analíticos de Optimatrading. Su función es consultar automáticamente las APIs correctas y estructurar los datos para que los módulos puedan operar sin preocuparse por la fuente de los datos.
+
+⚙️ Funcionamiento Lógico
+Entrada esperada:
+
+Una lista de activos a analizar (por ejemplo, los 10 principales por market cap: BTCUSDT, ETHUSDT, etc.).
+
+Un conjunto de archivos de contexto ya cargados:
+
+inputs_por_modulo.py: especifica qué tipo de datos necesita cada módulo.
+
+fuentes_inputs_api.py: mapea cada tipo de dato con la API correspondiente.
+
+Recorrido modular:
+
+Para cada módulo (ej. carry_trade, volatility_arb, etc.), loader.py identifica sus requerimientos de datos.
+
+Para cada requerimiento, consulta en fuentes_inputs_api.py qué API es responsable de proveer ese dato.
+
+Llama la función correspondiente de esa API, solicitando los datos para cada activo individual.
+
+Estructura esperada de salida:
+
+loader.py devuelve un diccionario estructurado por activo y tipo de dato. Ejemplo:
+
+json
+Copiar
+Editar
+{
+  "BTCUSDT": {
+    "price": ...,
+    "volume": ...,
+    "funding_rate": ...,
+    ...
+  },
+  "ETHUSDT": {
+    ...
+  }
+}
+🗃️ Archivos Relacionados y Su Rol
+Archivo	Función
+inputs_por_modulo.py	Define qué datos necesita cada módulo analítico.
+fuentes_inputs_api.py	Define qué API proporciona cada tipo de dato.
+apis/	Carpeta que contiene un archivo por API (binance.py, polygon.py, etc.) con funciones de extracción de datos.
+internos.py	Archivo especial que contiene funciones que no provienen de APIs externas, sino de cálculos internos (ej. market_structure, fair_value_gaps, etc.).
+
+💡 Puntos Clave para Cursor
+El sistema debe ser escalable: loader.py debe permitir agregar nuevos módulos y nuevos tipos de datos sin modificar su estructura básica.
+
+Evitar redundancias: Si varios módulos requieren el mismo dato para el mismo activo, loader.py solo debe pedirlo una vez.
+
+Manejo de errores: Si una API falla o un dato no está disponible, loader.py debe registrar el error e insertar un valor None o equivalente, sin detener el flujo general.
+
+El archivo loader.py no debe contener lógica analítica, solo lógica de recopilación y organización de datos.
+
+🧠 Analogía
+loader.py actúa como un “sistema circulatorio” que toma la gasolina (datos) desde diversas fuentes (APIs) y la distribuye hacia los órganos del cuerpo (módulos de análisis) que la necesitan para generar señales de trading.
+
+
+Propondré ahora la estructura básica del archivo loader.py en pseudocódigo funcional para que la escribamos luego en Cursor:
+
+python
+Copiar
+Editar
+# loader.py
+"""
+Este archivo carga todos los inputs requeridos por los módulos desde las APIs correspondientes,
+usando la información definida en inputs_por_modulo.py y fuentes_inputs_api.py.
+"""
+
+from inputs_por_modulo import INPUTS_REQUERIDOS
+from fuentes_inputs_api import FUENTES_INPUTS_API
+from apis import binance, deribit, polygon, finnhub, twelve_data, alphavantage, ninja, internos
+
+def cargar_datos_para_activo(activo: str) -> dict:
+    datos = {}
+    
+    for modulo, inputs in INPUTS_REQUERIDOS.items():
+        for input_ in inputs:
+            if input_ in datos:
+                continue  # Ya fue cargado por otro módulo
+            fuente = FUENTES_INPUTS_API.get(input_)
+            if not fuente:
+                continue
+            
+            # Aquí seleccionamos la función que corresponde a esa API
+            if fuente == "binance":
+                datos[input_] = binance.obtener_dato(input_, activo)
+            elif fuente == "polygon.io":
+                datos[input_] = polygon.obtener_dato(input_, activo)
+            elif fuente == "deribit":
+                datos[input_] = deribit.obtener_dato(input_, activo)
+            elif fuente == "finnhub":
+                datos[input_] = finnhub.obtener_dato(input_, activo)
+            elif fuente == "twelve_data":
+                datos[input_] = twelve_data.obtener_dato(input_, activo)
+            elif fuente == "alphavantage":
+                datos[input_] = alphavantage.obtener_dato(input_, activo)
+            elif fuente == "ninja":
+                datos[input_] = ninja.obtener_dato(input_, activo)
+            elif fuente == "interno":
+                datos[input_] = internos.calcular_dato(input_, activo)
+
+    return datos
+
+def cargar_todos_los_activos(lista_activos: list) -> dict:
+    resultado = {}
+    for activo in lista_activos:
+        resultado[activo] = cargar_datos_para_activo(activo)
+    return resultado
+# Archivo: loader_logic.py
+"""
+Define la lógica del componente Loader del sistema Optimatrading.
+Este módulo es responsable de solicitar y recolectar los datos necesarios
+para alimentar cada uno de los módulos analíticos a partir de las APIs definidas.
+"""
+
+import logging
+from typing import Dict, Any, List
+from fuentes_inputs_api import FUENTES_INPUTS_API
+
+logger = logging.getLogger(__name__)
+
+class Loader:
+    def __init__(self, apis: Dict[str, Any]):
+        """
+        Inicializa el loader con instancias de APIs disponibles.
+
+        Args:
+            apis (dict): Un diccionario con las instancias de clientes API configuradas.
+                         Las claves deben coincidir con las fuentes en FUENTES_INPUTS_API.
+        """
+        self.apis = apis
+
+    def fetch_input(self, input_name: str, symbol: str) -> Any:
+        """
+        Obtiene un dato específico desde su fuente correspondiente.
+
+        Args:
+            input_name (str): El nombre del dato requerido (debe estar en FUENTES_INPUTS_API).
+            symbol (str): El activo o par sobre el cual obtener el dato.
+
+        Returns:
+            Cualquier dato que retorne la función de la API correspondiente.
+        """
+        try:
+            fuente = FUENTES_INPUTS_API[input_name]
+            api = self.apis.get(fuente)
+            if not api:
+                raise ValueError(f"No se encontró una instancia de API para: {fuente}")
+
+            if hasattr(api, 'get_' + input_name):
+                func = getattr(api, 'get_' + input_name)
+                return func(symbol)
+            else:
+                raise AttributeError(f"La API '{fuente}' no tiene el método get_{input_name}")
+
+        except Exception as e:
+            logger.error(f"Error obteniendo {input_name} desde {fuente}: {str(e)}")
+            return None
+
+    def load_inputs_for_module(self, inputs: List[str], symbol: str) -> Dict[str, Any]:
+        """
+        Recolecta un conjunto de datos necesarios para un módulo de análisis.
+
+        Args:
+            inputs (list): Lista de nombres de datos requeridos.
+            symbol (str): Activo o par para el cual obtener los datos.
+
+        Returns:
+            dict: Diccionario con los datos recolectados para el módulo.
+        """
+        results = {}
+        for input_name in inputs:
+            results[input_name] = self.fetch_input(input_name, symbol)
+        return results

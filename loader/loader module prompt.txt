@@ -1,0 +1,93 @@
+"""
+Prompt para Cursor: Crear un módulo 'loader.py'
+Función: Recolector central de datos para alimentar los módulos analíticos del sistema Optimatrading.
+
+Este módulo debe:
+1. Recolectar datos de mercado en tiempo real y/o históricos desde múltiples APIs.
+2. Soportar múltiples activos (empezando con el Top 10 por capitalización de mercado en criptomonedas).
+3. Permitir escalabilidad futura (más activos, más fuentes de datos).
+4. Retornar los datos en una estructura estandarizada que pueda ser usada por los módulos.
+5. Validar y registrar errores si una API falla.
+
+Librerías necesarias:
+- `requests`
+- `datetime`
+- `pandas`
+- `logging`
+
+Estructura esperada:
+
+# loader.py
+- load_market_data(activo: str, intervalo: str = "1m", fuente: str = "binance") -> Dict
+- get_top_assets() -> List[str]  # Cargar top 10 activos (o leer desde archivo)
+- get_all_data_for_all_assets() -> Dict[str, Dict]  # Llama a load_market_data() por cada activo
+- Clase LoaderManager: para centralizar el proceso y manejar errores
+
+Las funciones deben permitir que los módulos soliciten información sin saber de dónde viene.
+
+-----------------------------
+
+# 📦 API Keys (guardar en un archivo .env o config separado, pero para pruebas puedes dejarlo en loader):
+API_KEYS = {
+    "binance": "XmLESrJh1AbAlYOmypUCC9RJINw1HSQ6RXn5Tv5QJSKFjTulEt3udYDK6f25pdOE",
+    "finnhub": "d0q0se1r01qmj4nhbvf0d0q0se1r01qmj4nhbvfg",
+    "polygon": "u9sgnjo7UolwDyuaaO3MvG5ID2EoljrB",
+    "twelve_data": "7b8c4b9f362343268e516d412eee55d0",
+    "alphavantage": "5B7F2RFD6B09AWOU",
+    "ninja_apis": "28b5lZ/fTAk2Pz+PW3VgiQ==Tg61OtIfiTYJP1aX"
+}
+
+# 📊 Activos iniciales
+TOP_ASSETS = ["BTCUSDT", "ETHUSDT", "USDTUSDT", "BNBUSDT", "SOLUSDT", "USDCUSDT", "XRPUSDT", "TONUSDT", "DOGEUSDT", "ADAUSDT"]
+
+El módulo debe funcionar como recolector de datos: lo que carga el loader se usa por los módulos como base para hacer los análisis.
+
+Además, el prompt debe dejar el código preparado para permitir añadir nuevas APIs, activos o frecuencias sin afectar el resto del sistema.
+
+Finalmente, debe contener funciones para guardar en cache (p. ej., localmente en archivo JSON o CSV) los datos en caso de error en la API.
+"""
+
+
+Crea el archivo `loader.py` para el sistema Optimatrading. Este archivo es responsable de recolectar y normalizar datos de mercado desde diferentes APIs para alimentar a los módulos analíticos.
+
+Requisitos clave:
+
+1. **Activos objetivo**:
+   - Obtén datos de los 10 criptoactivos con mayor capitalización de mercado actualmente (ej. BTC, ETH, BNB, SOL, XRP, ADA, DOGE, TON, TRX, LINK).
+   - De momento, trabaja con BTCUSDT y ETHUSDT como ejemplo, pero el código debe estar listo para escalar fácilmente a los 10 activos.
+
+2. **APIs disponibles**:
+   - Binance (Spot y Futuros)
+   - Finnhub
+   - Polygon.io
+   - Twelve Data
+   - AlphaVantage
+   - Ninja APIs
+
+3. **Funciones esperadas**:
+   - Recuperar:
+     - Precio spot y de futuros.
+     - Velas OHLC (1m, 5m, 15m).
+     - Funding rate (si está disponible).
+     - Order book (profundidad, spread, volumen).
+     - Volatilidad realizada e implícita (si es posible).
+     - Datos macroeconómicos básicos (si los permite alguna API).
+   - Unificar los datos en un solo diccionario `normalized_data` con claves como:
+     - `spot_price`
+     - `futures_price`
+     - `ohlcv_1m`, `ohlcv_5m`, etc.
+     - `funding_rate`
+     - `order_book`
+     - `volatility_realized`
+     - `volatility_implied`
+     - `macro_data`
+
+4. **Formato de salida**:
+   - Exporta una función `load_data(active_symbol: str) -> dict` que reciba el símbolo del activo (`BTCUSDT`, etc.) y devuelva un `dict` con todos los datos necesarios ya estructurados para el `dispatcher`.
+
+5. **Gestión de errores**:
+   - Si una API falla, registra el error con `logging` y continúa con las demás fuentes.
+   - Si falta un dato, pon `None` o un valor por defecto seguro.
+
+6. **Claves API**:
+   - Asume que las API keys ya están configuradas en un archivo llamado `optimatrading_config.py` o como variables de entorno. Usa una función como `get_api_key("binance")` para obtenerlas.

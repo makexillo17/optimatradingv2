@@ -1,0 +1,58 @@
+# main.py
+"""
+Main Execution Module for Optimatrading
+Coordinates loader, dispatcher, and consensus analysis.
+"""
+
+import logging
+from datetime import datetime
+from loader import load_market_data
+from dispatcher import dispatch_to_modules
+from consensus import analyze_signals
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+def run_analysis(asset_symbol: str = "BTCUSDT"):
+    """
+    Run full Optimatrading pipeline for a selected asset.
+
+    Args:
+        asset_symbol (str): Ticker symbol of the asset to analyze.
+
+    Returns:
+        dict: Final decision including consensus and module outputs.
+    """
+    logger.info(f"Starting analysis for asset: {asset_symbol}")
+
+    # Load data from APIs
+    market_data = load_market_data(asset_symbol)
+
+    # Dispatch to modules
+    module_outputs = dispatch_to_modules(market_data)
+
+    # Analyze consensus
+    final_result = analyze_signals(module_outputs)
+
+    logger.info("Analysis complete")
+    return {
+        "activo": asset_symbol,
+        "fecha": datetime.utcnow().isoformat(),
+        "modulos": module_outputs,
+        "resultado_final": final_result
+    }
+
+if __name__ == "__main__":
+    result = run_analysis("BTCUSDT")
+    print("\nResultado del Análisis General:")
+    print("===============================")
+    print(f"Activo: {result['activo']}")
+    print(f"Fecha: {result['fecha']}")
+    print("\nRecomendaciones por Módulo:")
+    for mod in result['modulos']:
+        print(f"- {mod['modulo']}: {mod['recomendacion']} ({mod['confianza']:.2f})")
+    print("\nDecisión Final:")
+    print(result['resultado_final'])

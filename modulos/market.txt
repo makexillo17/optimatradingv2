@@ -1,0 +1,56 @@
+**Hoja Informativa del Módulo: Market Making**
+
+---
+
+**Nombre del módulo:** `market_making`
+
+**Propósito:**
+Analizar condiciones de mercado para implementar estrategias de *market making activo*, mediante la colocación de órdenes de compra y venta que capturen el spread bid-ask. Se busca identificar ventanas donde los spreads sean lo suficientemente amplios y estables para permitir beneficios repetibles con bajo riesgo.
+
+**Tipo de señales esperadas:**
+
+* `long`: cuando el lado comprador ofrece mayor probabilidad de captura de spread
+* `short`: cuando el lado vendedor es más favorable para el maker
+* `neutral`: cuando las condiciones no permiten un market making eficiente
+
+**Fuentes de datos necesarias:**
+
+* API de Binance (libro de órdenes y últimas transacciones)
+* Histórico de spreads y volatilidad
+
+**Parámetros clave:**
+
+* Ancho del spread bid-ask (en % y en unidades)
+* Ratio de ejecución reciente por lado (agresividad de takers)
+* Estabilidad del spread en el tiempo (volatilidad local)
+* Volumen promedio por transacción reciente
+
+**Modelo matemático o técnico:**
+
+* Cálculo del spread efectivo:
+  $Spread_{efectivo} = \frac{Ask_{min} - Bid_{max}}{MidPrice}$
+* Ratio de agresividad:
+  $R = \frac{\#Buys - \#Sells}{\#Buys + \#Sells}$
+* Evaluación de estabilidad:
+  Mediante desvest ó volatilidad local del midprice en ventana de 1-5 min
+
+**Ejemplo de uso histórico:**
+En mercados de baja volatilidad como BTCUSDT en franjas nocturnas de Asia, el spread se mantiene estable por minutos, permitiendo colocar órdenes a ambos lados y capturar ganancias sistemáticas.
+
+**Limitaciones:**
+
+* Riesgo de ejecución asimétrica (solo una de las órdenes ejecutadas)
+* Alta exposición si hay ruptura de rango o spike de volumen
+
+**Complementariedad:**
+
+* Liquidity Provision: comparten análisis del libro, pero market making es activo
+* Volatility Arb: permite evitar momentos de alta volatilidad que invalidan la estrategia
+
+**Frecuencia de actualización:**
+Cada 5-10 segundos o cada nuevo evento de trade significativo
+
+**Dependencias técnicas:**
+
+* `requests`, `pandas`, `numpy`, `websockets`, `time`
+* Acceso al libro de órdenes y stream de transacciones recientes

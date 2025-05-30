@@ -1,0 +1,41 @@
+apis:
+  binance:
+    api_key: "XmLESrJh1AbAlYOmypUCC9RJINw1HSQ6RXn5Tv5QJSKFjTulEt3udYDK6f25pdOE
+"
+    api_secret: "nLsWOjlQCejtUovFtKN2tETBuVPZELDFcsAKDCPJztVDtTVbYKV6UEyeX4EmxDHZ"
+    testnet: false
+    timeout: 10000
+  
+  finnhub:
+    api_key: "d0q0se1r01qmj4nhbvf0d0q0se1r01qmj4nhbvfg"
+    sandbox: false
+    timeout: 5000
+  
+  polygon:
+    api_key: "u9sgnjo7UolwDyuaaO3MvG5ID2EoljrB"
+    sandbox: false
+    timeout: 5000
+  
+  twelvedata:
+    api_key: "7b8c4b9f362343268e516d412eee55d0"
+    timeout: 5000
+  
+  alphavantage:
+    api_key: "5B7F2RFD6B09AWOU"
+    timeout: 5000
+  
+  ninjaapis:
+    api_key: "28b5lZ/fTAk2Pz+PW3VgiQ==Tg61OtIfiTYJP1aX"
+    timeout: 5000
+
+logging:
+  level: INFO
+  file: logs/optimatrading.log
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+cache:
+  type: redis
+  host: localhost
+  port: 6379
+  db: 0
+  ttl: 3600  # 1 hour in seconds 

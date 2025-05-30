@@ -1,0 +1,54 @@
+**Hoja Informativa del Módulo: Dynamic Hedging**
+
+---
+
+**Nombre del módulo:** `dynamic_hedging`
+
+**Propósito:**
+Implementar una estrategia de cobertura dinámica para ajustar la exposición de una posición spot frente a cambios en la volatilidad y en el valor de un activo subyacente, utilizando derivados (opciones o futuros) y evaluando la delta en tiempo real. El objetivo es minimizar el riesgo de la posición principal.
+
+**Tipo de señales esperadas:**
+
+* `long`: si se detecta necesidad de cubrirse contra movimientos bajistas
+* `short`: si se detecta necesidad de cubrirse contra movimientos alcistas
+* `neutral`: si no se requiere cobertura activa
+
+**Fuentes de datos necesarias:**
+
+* API de Binance (precio spot y futuros)
+* API de Deribit (precio y griegas de opciones: delta, gamma, vega)
+* Datos de volatilidad implícita y realizada
+
+**Parámetros clave:**
+
+* Delta de la posición
+* Ratio entre volatilidad implícita y realizada
+* Desviación estándar de los movimientos recientes
+
+**Modelo matemático o técnico:**
+
+* Ajuste de cobertura delta-neutra: ∆ = derivada del precio de la opción respecto al subyacente
+* Evaluación de brecha entre volatilidad implícita (IV) y realizada (RV): `IV - RV`
+* Black-Scholes para pricing teórico
+* Estrategias de re-hedging basadas en triggers de desviación
+
+**Ejemplo de uso histórico:**
+En septiembre de 2022, cuando ETH cayó abruptamente, traders institucionales utilizaron opciones put para cubrir sus posiciones spot, y se detectó una alta demanda de delta hedging, disparando la volatilidad implícita.
+
+**Limitaciones:**
+
+* Dependiente de datos de opciones, que pueden no estar disponibles para todos los activos
+* Costos asociados a operaciones de re-hedging frecuentes
+
+**Complementariedad:**
+
+* Volatility Arb: usa las mismas bases para comparar oportunidades
+* Yield Anomaly: puede justificar necesidad de cubrir carry trades
+
+**Frecuencia de actualización:**
+Cada 30 segundos a 2 minutos
+
+**Dependencias técnicas:**
+
+* `numpy`, `scipy`, `requests`, `pandas`
+* Acceso a precios en tiempo real y griegas de opciones

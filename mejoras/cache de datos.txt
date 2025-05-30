@@ -1,0 +1,21 @@
+Caché de Datos (Propuesta de Mejora)
+Propósito: Evitar múltiples llamadas innecesarias a las APIs y acelerar el análisis mediante almacenamiento temporal de datos ya consultados.
+
+Requerimientos Técnicos:
+
+Implementación de un sistema de caché simple en disco (pickle, json, sqlite) o en memoria (functools.lru_cache).
+
+Mecanismo de invalidación o expiración configurable (por ejemplo, cada 60 segundos).
+
+Sistema de control para decidir si tomar datos desde caché o desde fuente en tiempo real.
+
+Aplicación:
+
+El loader.py consulta la caché antes de llamar a una API.
+
+Si el dato es reciente y válido, se utiliza desde caché.
+
+Si no existe o está vencido, se hace llamada nueva y se guarda el resultado.
+
+Estado Actual: No implementado. Altamente recomendable para producción a gran escala.
+

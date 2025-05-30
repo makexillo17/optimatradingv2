@@ -1,0 +1,55 @@
+**Hoja Informativa del Módulo: Liquidity Provision**
+
+---
+
+**Nombre del módulo:** `liquidity_provision`
+
+**Propósito:**
+Detectar oportunidades en las que un trader pueda proveer liquidez de manera ventajosa, aprovechando desequilibrios en el libro de órdenes y condiciones del spread entre compra y venta. Se centra en evaluar la estabilidad del mercado y la rentabilidad potencial de actuar como market maker pasivo.
+
+**Tipo de señales esperadas:**
+
+* `long`: oportunidad de proveer liquidez en la parte compradora del libro (bids)
+* `short`: oportunidad en la parte vendedora (asks)
+* `neutral`: condiciones inestables o poco atractivas para proveer liquidez
+
+**Fuentes de datos necesarias:**
+
+* API de Binance (libro de órdenes completo en tiempo real)
+* Datos de profundidad de mercado y volumen por nivel de precio
+
+**Parámetros clave:**
+
+* Spread bid-ask (en % y absoluto)
+* Profundidad por nivel de precio (acumulación de liquidez)
+* Desequilibrio entre lados del libro (porcentual)
+* Volumen reciente ejecutado (para evaluar agresividad de mercado)
+
+**Modelo matemático o técnico:**
+
+* Análisis de spread:
+  $Spread = Ask_{min} - Bid_{max}$
+* Desequilibrio de volumen acumulado:
+  $Desequilibrio = \frac{\sum Volumen_{bids} - \sum Volumen_{asks}}{\sum Volumen_{total}}$
+* Ratio de estabilidad: relación entre la profundidad en los 5 niveles superiores de cada lado
+
+**Ejemplo de uso histórico:**
+Durante eventos de alta volatilidad como el FTX crash, el spread de BTC aumentó y la liquidez se concentró solo en ciertos niveles, permitiendo que los proveedores pasivos capturen precios favorables con bajo riesgo de ejecución adversa.
+
+**Limitaciones:**
+
+* Alta sensibilidad a picos de volatilidad
+* Riesgo de ejecución parcial o completa en momentos no deseados
+
+**Complementariedad:**
+
+* Market Making: ambos se benefician del spread pero con distinta actitud (activo vs pasivo)
+* Volatility Arb: puede alertar sobre momentos de alta volatilidad que afecten liquidez
+
+**Frecuencia de actualización:**
+Cada 5-10 segundos (si el sistema lo permite), o al menos cada vez que cambie el spread o la profundidad por nivel
+
+**Dependencias técnicas:**
+
+* `requests`, `pandas`, `numpy`, `websockets`
+* Acceso en tiempo real al nivel 2 del order book (profundidad y volumen por nivel)

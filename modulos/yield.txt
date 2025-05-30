@@ -1,0 +1,65 @@
+**Hoja Informativa del Módulo: Yield Anomaly**
+
+---
+
+**Nombre del módulo:** `yield_anomaly`
+
+**Propósito:**
+Detectar oportunidades de arbitraje o estrategias de posicionamiento basadas en diferencias anómalas entre el precio del activo en el mercado spot y en el mercado de futuros perpetuos. Este módulo busca capitalizar las discrepancias de rendimiento implícito que no estén justificadas por la estructura del mercado o condiciones macro.
+
+**Tipo de señales esperadas:**
+
+* `long`: cuando el rendimiento implícito sugiere que el precio futuro está subvaluado (compra en spot)
+* `short`: cuando el rendimiento implícito sugiere que el precio futuro está sobrevaluado (venta en spot)
+* `neutral`: cuando el rendimiento se encuentra dentro de valores esperados (no acción)
+
+**Fuentes de datos necesarias:**
+
+* Precio spot actual del activo
+* Precio del contrato perpetuo del mismo activo
+* Tasa de financiamiento promedio
+* Frecuencia: cada minuto o 5 minutos
+* APIs: Binance (spot + futures), Finnhub (fundamentales de tasas)
+
+**Parámetros clave:**
+
+* Precio spot
+* Precio de futuros
+* Rendimiento implícito:
+  $r = \left(\frac{P_{futuro}}{P_{spot}} - 1\right) \times 100$
+* Tasa de financiamiento promedio de los últimos 7 días
+
+**Modelo matemático o técnico:**
+
+* Si el rendimiento implícito excede en más de un umbral (por ejemplo, +3% o -3%) la tasa de financiamiento promedio anualizada, se considera una anormalidad.
+* Se pueden usar tests de outliers o media-móvil para definir umbrales adaptativos.
+
+**Ejemplo de uso histórico:**
+En octubre de 2022, BTC mostraba una prima del 7% entre el contrato de futuros perpetuos y el spot. La tasa de financiamiento no justificaba esta discrepancia, por lo que una posición de short en futuros y long en spot habría generado un retorno neto tras ajuste por fees.
+
+**Limitaciones:**
+
+* Requiere precisión en los datos de precios y sincronización temporal
+* Sensible a eventos de alta volatilidad (pueden invalidar la anomalía percibida)
+* Riesgo de sobreajuste si se calibran umbrales de forma muy estricta
+
+**Complementariedad:**
+
+* `volatility_arb`: puede ayudar a validar si la prima de futuros está impulsada por un aumento en la volatilidad esperada
+* `carry_trade`: puede verse como un caso especial de diferenciales de tasa de retorno
+
+**Frecuencia de actualización:**
+
+* Cada 1 minuto, en sinergia con actualización de tasas de financiamiento y precios
+
+**Dependencias técnicas:**
+
+* `pandas`, `numpy`, `ccxt` o `binance-connector`, `requests`
+* Sincronización horaria de precios spot y de futuros
+* Acceso en tiempo real a tasas de financiamiento
+
+**Salidas esperadas:**
+
+* Veredicto (`long`, `short`, `neutral`)
+* Nivel de confianza (basado en magnitud del spread y consistencia de la anomalía)
+* Justificación técnica (detalles numéricos de la análisis)

@@ -1,0 +1,109 @@
+**Documentación de APIs para Optimatrading**
+
+---
+
+Esta documentación detalla cómo se utilizan las APIs integradas en el sistema Optimatrading, qué endpoints específicos se consultan y qué datos aportan a los distintos módulos analíticos.
+
+---
+
+### API Keys Integradas:
+
+
+API Key
+XmLESrJh1AbAlYOmypUCC9RJINw1HSQ6RXn5Tv5QJSKFjTulEt3udYDK6f25pdOE
+Secret Key
+nLsWOjlQCejtUovFtKN2tETBuVPZELDFcsAKDCPJztVDtTVbYKV6UEyeX4EmxDHZ
+
+* **Finnhub:** d0q0se1r01qmj4nhbvf0d0q0se1r01qmj4nhbvfg
+* **Polygon.io:** u9sgnjo7UolwDyuaaO3MvG5ID2EoljrB
+* **Twelve Data:** 7b8c4b9f362343268e516d412eee55d0
+* **Alpha Vantage:** 5B7F2RFD6B09AWOU
+* **Ninja APIs:** 28b5lZ/fTAk2Pz+PW3VgiQ==Tg61OtIfiTYJP1aX
+
+---
+
+### 1. **Binance API**
+
+* **Base URL:** `https://api.binance.com`
+* **Tipo de datos utilizados:**
+
+  * Precios spot
+  * Libro de órdenes (order book)
+  * Historial de velas OHLC
+  * Trades recientes
+* **Endpoints clave:**
+
+  * `/api/v3/ticker/price` → Precios actuales (spot)
+  * `/api/v3/depth` → Order book para módulos de `liquidity_provision`, `market_making`
+  * `/api/v3/klines` → Velas OHLC para análisis de `volatility_arb`, `smc_ict`, etc.
+  * `/api/v3/trades` → Trades recientes
+
+---
+
+### 2. **Finnhub API**
+
+* **Base URL:** `https://finnhub.io/api/v1`
+* **Tipo de datos utilizados:**
+
+  * Noticias económicas (planeado a futuro)
+  * Fundamentos de activos (en integración)
+  * Datos históricos de criptos
+* **Endpoints clave:**
+
+  * `/crypto/candle` → Precios históricos
+  * `/crypto/exchange` → Listado de criptomonedas por exchange
+
+---
+
+### 3. **Polygon.io API**
+
+* **Base URL:** `https://api.polygon.io`
+* **Tipo de datos utilizados:**
+
+  * OHLCV (Open, High, Low, Close, Volume) históricos y en tiempo real
+  * Datos de mercado extendido para análisis `stat_arb`, `carry_trade`, etc.
+* **Endpoints clave:**
+
+  * `/v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{from}/{to}` → Series temporales de velas
+  * `/v1/open-close/{symbol}/{date}` → Apertura y cierre diario
+
+---
+
+### 4. **Twelve Data API**
+
+* **Base URL:** `https://api.twelvedata.com`
+* **Tipo de datos utilizados:**
+
+  * Tickers de criptos
+  * Velas y series históricas alternativas
+* **Endpoints clave:**
+
+  * `/time_series?symbol=BTC/USD&interval=1min&apikey=...`
+  * `/price?symbol=ETH/USD&apikey=...`
+
+---
+
+### 5. **Alpha Vantage API**
+
+* **Base URL:** `https://www.alphavantage.co`
+* **Tipo de datos utilizados:**
+
+  * Series de precios en diferentes intervalos
+  * Complemento de datos financieros alternos
+* **Endpoints clave:**
+
+  * `/query?function=TIME_SERIES_INTRADAY&symbol=BTCUSD&interval=5min&apikey=...`
+  * `/query?function=CRYPTO_INTRADAY&symbol=ETH&market=USD&interval=15min`
+
+---
+
+### 6. **Ninja APIs**
+
+* **Propósito:** Datos adicionales o backup alternativo si otras APIs fallan.
+* **Estado:** En fase experimental. Endpoints a definir de acuerdo con sus limitaciones comerciales y plan gratuito.
+
+---
+
+### Nota final:
+
+Todos los endpoints se consultan bajo control del `loader.py`, que organiza los llamados dependiendo del activo, módulo y prioridad. Los módulos solo reciben los datos listos para análisis, no hacen llamadas directas a las APIs.

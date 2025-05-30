@@ -1,0 +1,85 @@
+**Módulo de Informe - Especificaciones para Optimatrading**
+
+---
+
+Este documento especifica cómo debe funcionar el módulo de generación de informes para el sistema Optimatrading, en lugar del dashboard. Este módulo permite visualizar los resultados del análisis sin necesidad de una interfaz gráfica.
+
+---
+
+### 📊 Objetivo
+
+Generar un archivo de salida que resuma:
+
+* Las señales de los 10 módulos analíticos.
+* El veredicto general del sistema (`main.py`).
+* La explicación textual generada por `gpt_explainer.py`.
+
+---
+
+### 🔧 Formato del Informe
+
+El informe debe generarse en alguno de los siguientes formatos:
+
+* `.txt`
+* `.md` (markdown)
+* `.pdf` (opcional, si se desea exportar)
+
+**Ruta de almacenamiento sugerida:**
+
+```
+/output/informes/{fecha}__{activo}_report.txt
+```
+
+Ejemplo:
+
+```
+/output/informes/2025-05-28__BTCUSDT_report.txt
+```
+
+---
+
+### 📆 Estructura del Contenido
+
+**Cabecera del Informe:**
+
+```
+🧠 Optimatrading - Informe General del Análisis
+Fecha: 2025-05-28  Hora: 16:45:10
+Activo: BTCUSDT
+```
+
+**Resumen por módulo:**
+
+```
+| Módulo               | Señal     | Confianza | Justificación breve                             |
+|---------------------|-----------|-----------|-------------------------------------------------|
+| Broker Behavior     | Neutral   | 68%       | No anomalías detectadas                         |
+| Carry Trade         | Long      | 72%       | Prima positiva en futuros perpetuos             |
+| ...                 | ...       | ...       | ...                                             |
+```
+
+**Veredicto Final:**
+
+```
+📅 Resultado Final: SHORT
+Confianza Total: 74.2%
+```
+
+**Explicación GPT:**
+
+```
+El sistema detecta un escenario bajista basado en las señales de Market Making, Volatility Arbitrage y Liquidity Provision. A pesar de señales positivas en otros módulos como SMC e ICT, el consenso global es de corrección bajista con alta confianza.
+```
+
+---
+
+### 💡 Consideraciones Adicionales
+
+* Este módulo no necesita interfaz visual.
+* Puede integrarse directamente en `main.py` como una función que se ejecuta al finalizar el análisis.
+* La explicación textual debe generarse utilizando la salida del `gpt_explainer`.
+* El archivo debe sobrescribirse o guardar versiones por timestamp si ya existe uno anterior.
+
+---
+
+Este módulo reemplaza temporalmente la necesidad del dashboard y permite auditoría rápida y automatizada de los resultados del sistema.

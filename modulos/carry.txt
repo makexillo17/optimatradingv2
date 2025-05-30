@@ -1,0 +1,53 @@
+**Hoja Informativa del Módulo: Carry Trade**
+
+---
+
+**Nombre del módulo:** `carry_trade`
+
+**Propósito:**
+Evaluar oportunidades de carry trade en activos que presenten diferencias significativas entre tasas de interés implícitas, especialmente entre el mercado spot y futuros perpetuos. El módulo identifica si mantener una posición larga o corta produce rendimientos positivos debido a la estructura de tasas.
+
+**Tipo de señales esperadas:**
+
+* `long`: si el activo tiene una tasa implícita positiva y favorable al carry positivo
+* `short`: si el carry negativo favorece una posición inversa
+* `neutral`: sin oportunidad relevante de carry
+
+**Fuentes de datos necesarias:**
+
+* API de Binance (precio spot y futuros perpetuos)
+* API de Deribit (si se analiza carry en derivados)
+* API de Twelve Data o AlphaVantage para tasas de referencia
+
+**Parámetros clave:**
+
+* Precio del activo en spot vs. precio del contrato de futuros
+* Tasa de financiamiento actual y promedio
+* Tiempo hasta el vencimiento (si aplica)
+
+**Modelo matemático o técnico:**
+
+* Cálculo del rendimiento implícito: $(Precio_{futuro} - Precio_{spot}) / Precio_{spot}$
+* Análisis de tasa de financiamiento: se compara con la media histórica
+* Evaluación de anomalías si la tasa difiere significativamente del promedio
+
+**Ejemplo de uso histórico:**
+Durante el mercado alcista de 2021, la tasa de financiamiento de BTCUSDT en Binance alcanzó niveles de 0.2% cada 8h, lo que incentivó posiciones de carry a través de ventas en futuros y compras en spot.
+
+**Limitaciones:**
+
+* Altamente dependiente de la estabilidad de las tasas
+* Puede generar pérdidas si el activo se mueve fuertemente contra la posición
+
+**Complementariedad:**
+
+* Yield Anomaly: compara si el carry es una anomalia temporal
+* Volatility Arb: analiza si hay riesgo de volatilidad que anule el carry
+
+**Frecuencia de actualización:**
+Cada 1-5 minutos, o al menos por cada cambio de tasa de financiamiento
+
+**Dependencias técnicas:**
+
+* `requests`, `pandas`, `numpy`, `datetime`
+* Acceso en tiempo real a tasas de futuros y spot

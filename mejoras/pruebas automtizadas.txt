@@ -1,0 +1,19 @@
+ Pruebas Automatizadas (Propuesta de Mejora)
+Propósito: Garantizar la estabilidad del sistema y facilitar actualizaciones mediante pruebas automatizadas que verifiquen el comportamiento esperado.
+
+Tipos de Pruebas:
+
+Pruebas unitarias: Verifican que funciones individuales produzcan los resultados esperados.
+
+Pruebas de integración: Validan la interacción entre múltiples módulos (por ejemplo, loader → dispatcher → módulo).
+
+Pruebas de sistema: Simulan el uso completo del sistema desde carga de datos hasta análisis y visualización.
+
+Herramientas Sugeridas:
+
+pytest, unittest, tox para automatización.
+
+GitHub Actions o similar para integración continua.
+
+Estado Actual: No implementado. Ideal comenzar con pruebas unitarias para módulos más deterministas (stat_arb, pairs_trading, etc.).
+

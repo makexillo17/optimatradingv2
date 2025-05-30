@@ -1,0 +1,52 @@
+ Configuración Dinámica (Propuesta de Mejora)
+Propósito: Permitir al usuario o sistema ajustar parámetros clave de cada módulo analítico de forma flexible, sin tener que modificar el código fuente directamente.
+
+Requerimientos:
+
+Archivo de configuración centralizado (por ejemplo, config.yaml o settings.json).
+
+Interfaz visual (opcional, vía dashboard) para editar los parámetros.
+
+Mecanismo de lectura automática al inicio del análisis para aplicar los parámetros en tiempo real.
+
+Parámetros Ajustables por Módulo:
+
+Ventanas temporales: Longitudes de análisis (ej. 20 velas, 50 velas, 200 velas).
+
+Umbrales estadísticos: z-scores, percentiles, gaps mínimos, etc.
+
+Indicadores técnicos: Activación o desactivación de indicadores como RSI, MACD, medias móviles, etc.
+
+Tolerancias o márgenes: Desviaciones permitidas para señales o confirmaciones.
+
+Peso del módulo en el consenso final: Asignación de importancia relativa (si main.py opera con votación ponderada).
+
+Módulos Afectados:
+
+Todos los módulos analíticos (broker_behavior, pairs_trading, volatility_arb, yield_anomaly, etc.).
+
+El módulo central de decisión (main.py), que puede adaptarse a distintos escenarios estratégicos.
+
+Ventajas:
+
+Permite experimentación rápida.
+
+Favorece mantenimiento y personalización por parte del usuario.
+
+Habilita la implementación de perfiles de riesgo y estrategias diferenciadas por activo o mercado.
+
+Ejemplo de Entrada en Configuración (formato JSON):
+
+json
+Copiar
+Editar
+{
+  "pairs_trading": {
+    "lookback_window": 60,
+    "z_score_threshold": 1.5
+  },
+  "yield_anomaly": {
+    "funding_rate_threshold": 0.01,
+    "lookback_days": 7
+  }
+}

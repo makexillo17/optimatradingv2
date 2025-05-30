@@ -1,0 +1,64 @@
+**Hoja Informativa del Módulo: Pairs Trading**
+
+---
+
+**Nombre del módulo:** `pairs_trading`
+
+**Propósito:**
+Detectar oportunidades de trading a partir de la divergencia temporal entre dos activos altamente correlacionados. Se busca explotar el retorno a la media de la relación de precios mediante una estrategia de arbitraje de par.
+
+**Tipo de señales esperadas:**
+
+* `long`: cuando el ratio del par está bajo (se espera que aumente)
+* `short`: cuando el ratio está alto (se espera que disminuya)
+* `neutral`: cuando el ratio está dentro de su rango normal
+
+**Fuentes de datos necesarias:**
+
+* Precios históricos de los dos activos (por ejemplo, BTC y ETH, MATIC y AVAX)
+* Resolución: 1 min a 1 hora, dependiendo del horizonte de operación
+* APIs sugeridas: Binance, Twelve Data, Polygon.io
+
+**Parámetros clave:**
+
+* Ratio de precios entre los dos activos: $R_t = \frac{P_{A,t}}{P_{B,t}}$
+* Media móvil del ratio: SMA(n)
+* Banda superior/inferior: SMA(n) ± k \* STD(n)
+* Z-score para normalización del ratio
+
+**Modelo matemático o técnico:**
+
+* Cálculo del z-score del ratio:
+  $Z_t = \frac{R_t - SMA_n}{STD_n}$
+  donde SMA es la media móvil y STD la desviación estándar
+
+* Criterios comunes:
+
+  * Entrada: $|Z_t| > 1.5$
+  * Salida: $Z_t \approx 0$
+
+**Ejemplo de uso histórico:**
+Durante agosto de 2022, el par MATIC/AVAX mostró una desviación del ratio superior a 2.1 z-score. Se ejecutó una operación long en AVAX y short en MATIC, obteniendo un retorno del 4.2% en 72 horas al regresar el ratio a su media.
+
+**Limitaciones:**
+
+* No implica causalidad entre activos correlacionados
+* Relación puede romperse por eventos fundamentales o noticias
+* Necesita verificación periódica de estabilidad del ratio
+
+**Complementariedad:**
+
+* `stat_arb`: ambos buscan relaciones entre pares, pero `stat_arb` incorpora co-integración
+* `yield_anomaly`: puede reforzar la decisión si la anomalía de rendimientos coincide con el spread
+
+**Frecuencia de actualización:**
+
+* Cada 5-15 minutos o menos, dependiendo del horizonte operativo y datos disponibles
+
+**Dependencias técnicas:**
+
+* `numpy`, `pandas`, `scipy`, `sklearn` para cálculo de ratios, medias, z-score
+* `matplotlib` o `plotly` para visualización de spreads y ratios
+
+**Nivel de confiabilidad:**
+Alto en mercados estables y con activos altamente correlacionados. Requiere ajuste de parámetros según la volatilidad del mercado.
