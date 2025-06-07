@@ -17,7 +17,7 @@ python-multipart==0.0.5
 email-validator==1.1.3
 
 # Webhooks and Notifications
-aiohttp==3.7.4.post0
+aiohttp==3.8.4
 backoff==2.1.2
 tenacity==8.0.1
 
