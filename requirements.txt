@@ -46,3 +46,4 @@ cryptography==37.0.2
 fastapi-limiter==0.1.5
 python-binance==1.0.19
 finnhub-python==2.4.8
+polygon-api-client==1.7.0
