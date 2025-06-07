@@ -33,7 +33,7 @@ tqdm==4.64.0
 joblib==1.1.0
 
 # Analysis and Processing
-scipy==1.7.3
+scipy==1.9.3
 scikit-learn==1.0.2
 ta==0.10.2
 
