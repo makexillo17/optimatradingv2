@@ -157,3 +157,19 @@ class OptimatradingMain:
             'consensus_details': {},
             'error': error_message
         } 
+    from fastapi import FastAPI
+
+app = FastAPI()
+
+# Instanciar tu clase
+optimatrading = OptimatradingMain()
+
+@app.get("/")
+def root():
+    return {"message": "Servidor de Optimatrading activo"}
+
+# Ejemplo de endpoint usando tu clase
+@app.get("/analyze/{asset_symbol}")
+def analyze(asset_symbol: str):
+    result = optimatrading.run_analysis(asset_symbol)
+    return result
