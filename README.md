@@ -92,4 +92,21 @@ pytest
 
 ## Licencia
 
-MIT License - ver [LICENSE](LICENSE) para más detalles. 
+MIT License - ver [LICENSE](LICENSE) para más detalles.
+
+## Despliegue en Render
+
+El proyecto está configurado para desplegarse en Render usando:
+
+- `render.yaml`: Configuración del servicio
+- `Procfile`: Comando de arranque
+
+### Comando de arranque
+```bash
+gunicorn -k uvicorn.workers.UvicornWorker -w 1 --threads 8 --timeout 60 optimatrading.api.routes:app --bind 0.0.0.0:$PORT
+```
+
+### Versiones principales
+- Python 3.9.13
+- FastAPI (última versión estable)
+- Gunicorn con worker Uvicorn 

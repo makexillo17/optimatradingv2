@@ -1,0 +1,41 @@
+services:
+  # Web API Service
+  - type: web
+    name: optimatrading-api
+    env: python
+    region: ohio
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -k uvicorn.workers.UvicornWorker -w 1 --threads 8 --timeout 60 optimatrading.api.routes:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.9.13
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: MAX_WORKERS
+        value: "1"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: optimatrading-redis
+          property: connectionString
+      - key: PYTHONPATH
+        value: .
+    healthCheckPath: /health
+    autoDeploy: false
+    disk:
+      name: optimatrading-data
+      mountPath: /data
+      sizeGB: 1
+
+  # Redis Service (for rate limiting and caching)
+  - type: redis
+    name: optimatrading-redis
+    region: ohio
+    plan: free
+    maxmemoryPolicy: volatile-lru
+    ipAllowList: [] 
