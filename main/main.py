@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional
 import numpy as np
 from datetime import datetime
 
-from loader.loader import DataLoader
+from loader.loader import MarketDataLoader as DataLoader
 from dispatcher.module_dispatcher import ModuleDispatcher
 from main.consensus import ConsensusAnalyzer
 from utils.logger import setup_logger
