@@ -9,11 +9,13 @@ from dispatcher.dispatcher import ModuleDispatcher
 from main.consensus import ConsensusAnalyzer
 from utils.logger import setup_logger
 
+import os
 
 class OptimatradingMain:
     def __init__(self):
         self.logger = setup_logger("OptimatradingMain")
-        self.data_loader = DataLoader(config_path="config/config.yaml")
+        config_file = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
+self.data_loader = DataLoader(config_path=config_file)
         self.dispatcher = ModuleDispatcher()
         self.consensus = ConsensusAnalyzer()
 
