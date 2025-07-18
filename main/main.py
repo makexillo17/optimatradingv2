@@ -13,7 +13,7 @@ from utils.logger import setup_logger
 class OptimatradingMain:
     def __init__(self):
         self.logger = setup_logger("OptimatradingMain")
-        self.data_loader = DataLoader(config_path="config.yaml")
+        self.data_loader = DataLoader(config_path="config/config.yaml")
         self.dispatcher = ModuleDispatcher()
         self.consensus = ConsensusAnalyzer()
 
