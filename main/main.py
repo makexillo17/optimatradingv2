@@ -15,7 +15,7 @@ class OptimatradingMain:
     def __init__(self):
         self.logger = setup_logger("OptimatradingMain")
         config_file = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
-self.data_loader = DataLoader(config_path=config_file)
+        self.data_loader = DataLoader(config_path=config_file)
         self.dispatcher = ModuleDispatcher()
         self.consensus = ConsensusAnalyzer()
 
