@@ -2,6 +2,7 @@ import logging
 from typing import Dict, Any, List, Optional
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI                     #  ←  Import correcto, fuera de la clase
 from loader.loader import MarketDataLoader as DataLoader
@@ -14,8 +15,10 @@ import os
 class OptimatradingMain:
     def __init__(self):
         self.logger = setup_logger("OptimatradingMain")
-        config_file = os.path.join(os.path.dirname(__file__), "..", "config", "config.yaml")
-        self.data_loader = DataLoader(config_path=config_file)
+        config_path = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
+        if not config_path.exists():
+            raise FileNotFoundError(f"No se encontró el archivo de configuración en: {config_path}")
+        self.data_loader = DataLoader(config_path=str(config_path))
         self.dispatcher = ModuleDispatcher()
         self.consensus = ConsensusAnalyzer()
 
@@ -180,4 +183,11 @@ def root():
 @app.get("/analyze/{asset_symbol}")
 def analyze(asset_symbol: str):
     return optimatrading.run_analysis(asset_symbol)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("main.main:app", host="0.0.0.0", port=port, reload=True)
 

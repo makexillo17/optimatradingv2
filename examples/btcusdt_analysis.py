@@ -22,6 +22,7 @@ from optimatrading.logging import LoggerManager
 from optimatrading.cache import CacheManager
 from optimatrading.config import ConfigManager
 from optimatrading.utils import DataValidator
+from utils.logger import setup_logger
 
 def fetch_market_data(
     symbol: str,
@@ -81,6 +82,7 @@ def fetch_market_data(
 
 def main():
     """Función principal que ejecuta el análisis completo"""
+    logger = setup_logger("btc_analysis")
     try:
         # Inicializar gestor de configuración
         config_manager = ConfigManager(
@@ -155,17 +157,17 @@ def main():
         )
         
         # Mostrar resultados
-        print("\n=== Resultados del Análisis ===")
-        print(f"Recomendación: {result['recommendation']}")
-        print(f"Confianza: {result['confidence']:.2%}")
-        print(f"Justificación: {result['justification']}")
-        print("\nResultados por Módulo:")
+        logger.info("\n=== Resultados del Análisis ===")
+        logger.info(f"Recomendación: {result['recommendation']}")
+        logger.info(f"Confianza: {result['confidence']:.2%}")
+        logger.info(f"Justificación: {result['justification']}")
+        logger.info("\nResultados por Módulo:")
         
         for module, module_result in result['module_results'].items():
-            print(f"\n{module}:")
-            print(f"  Recomendación: {module_result['recommendation']}")
-            print(f"  Confianza: {module_result['confidence']:.2%}")
-            print(f"  Justificación: {module_result['justification']}")
+            logger.info(f"\n{module}:")
+            logger.info(f"  Recomendación: {module_result['recommendation']}")
+            logger.info(f"  Confianza: {module_result['confidence']:.2%}")
+            logger.info(f"  Justificación: {module_result['justification']}")
             
         # Calcular métricas históricas si están habilitadas
         metrics_config = config_manager.get('metrics')
@@ -185,10 +187,10 @@ def main():
                     timestamps
                 )
                 
-                print("\n=== Métricas de Rendimiento ===")
+                logger.info("\n=== Métricas de Rendimiento ===")
                 for metric, enabled in metrics_config['calculate'].items():
                     if enabled and metric in metrics:
-                        print(f"{metric.replace('_', ' ').title()}: {metrics[metric]:.2%}")
+                        logger.info(f"{metric.replace('_', ' ').title()}: {metrics[metric]:.2%}")
             
     except Exception as e:
         logger.error(f"Error en la ejecución: {str(e)}")
