@@ -31,13 +31,16 @@ class MarketDataLoader:
     def _setup_logging(self) -> logging.Logger:
         logger = logging.getLogger('MarketDataLoader')
         log_config = self.config['logging']
+        # Crear carpeta de logs si no existe
         log_dir = Path(__file__).resolve().parent.parent / "logs"
-        log_dir.mkdir(exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        # Definir ruta absoluta al archivo de log
         log_file = log_dir / "optimatrading.log"
+        # Configurar logging con archivo
         logging.basicConfig(
+            filename=str(log_file),
             level=log_config['level'],
-            format=log_config['format'],
-            filename=str(log_file)
+            format=log_config['format']
         )
         return logger
     
