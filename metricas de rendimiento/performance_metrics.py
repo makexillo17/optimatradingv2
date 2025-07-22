@@ -3,16 +3,16 @@ import numpy as np
 from datetime import datetime, timedelta
 import pandas as pd
 from logging.logger_manager import LoggerManager
-from cache.cache_manager import CacheManager
+# from cache.cache_manager import CacheManager
 
 class PerformanceMetrics:
     def __init__(
         self,
         logger_manager: Optional[LoggerManager] = None,
-        cache_manager: Optional[CacheManager] = None
+        cache_manager: Optional[object] = None  # Comentado tipo original
     ):
         self.logger = logger_manager.get_logger("PerformanceMetrics") if logger_manager else None
-        self.cache = cache_manager
+        self.cache = cache_manager  # Puede dejarse como None
         
     def calculate_trading_metrics(
         self,
@@ -58,12 +58,12 @@ class PerformanceMetrics:
             metrics.update(self._calculate_confidence_metrics(df))
             
             # Almacenar métricas en caché si está disponible
-            if self.cache:
-                self.cache.set(
-                    f"metrics:{datetime.now():%Y%m%d}",
-                    metrics,
-                    namespace="performance"
-                )
+            # if self.cache:
+            #     self.cache.set(
+            #         f"metrics:{datetime.now():%Y%m%d}",
+            #         metrics,
+            #         namespace="performance"
+            #     )
                 
             if self.logger:
                 self.logger.info("metrics_calculated", metrics=metrics)

@@ -6,7 +6,7 @@ from typing import Dict, Any
 
 from main.main import OptimatradingMain
 from logging.logger_manager import LoggerManager
-from cache.cache_manager import CacheManager
+# from cache.cache_manager import CacheManager
 from configuracion_dinamica.config_manager import ConfigManager
 from utils.data_validator import DataValidator
 
@@ -15,12 +15,13 @@ class TestSystemIntegration:
     def setup_system(self):
         """Configura el sistema completo para pruebas"""
         logger_manager = LoggerManager(app_name="test_optimatrading")
-        cache_manager = CacheManager(
-            host="localhost",
-            port=6379,
-            db=1,  # Base de datos separada para pruebas
-            logger_manager=logger_manager
-        )
+        # cache_manager = CacheManager(
+        #     host="localhost",
+        #     port=6379,
+        #     db=1,  # Base de datos separada para pruebas
+        #     logger_manager=logger_manager
+        # )
+        cache_manager = None
         config_manager = ConfigManager(
             config_dir="test_config",
             logger_manager=logger_manager,

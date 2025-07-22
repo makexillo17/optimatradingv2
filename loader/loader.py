@@ -5,6 +5,7 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 from .data_types import MarketData, OrderBookData
 from .providers import (
@@ -30,13 +31,14 @@ class MarketDataLoader:
     def _setup_logging(self) -> logging.Logger:
         logger = logging.getLogger('MarketDataLoader')
         log_config = self.config['logging']
-        
+        log_dir = Path(__file__).resolve().parent.parent / "logs"
+        log_dir.mkdir(exist_ok=True)
+        log_file = log_dir / "optimatrading.log"
         logging.basicConfig(
             level=log_config['level'],
             format=log_config['format'],
-            filename=log_config['file']
+            filename=str(log_file)
         )
-        
         return logger
     
     def _setup_cache(self) -> redis.Redis:
