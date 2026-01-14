@@ -2,6 +2,7 @@ import yaml
 import logging
 import redis
 import json
+import os
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -18,19 +19,61 @@ from .providers import (
 )
 
 class MarketDataLoader:
-    def __init__(self, config_path: str):
-        self.config = self._load_config(config_path)
+    def __init__(self, config_path: Optional[str] = None):
+        self.config = self._load_config(config_path) if config_path else self._load_config_from_env()
         self.logger = self._setup_logging()
         self.cache = self._setup_cache()
         self.providers = self._setup_providers()
         
     def _load_config(self, config_path: str) -> Dict[str, Any]:
-        with open(config_path, 'r') as f:
-            return yaml.safe_load(f)
+        try:
+            with open(config_path, 'r') as f:
+                return yaml.safe_load(f)
+        except FileNotFoundError:
+            return self._load_config_from_env()
+    
+    def _load_config_from_env(self) -> Dict[str, Any]:
+        """Carga configuración desde variables de entorno cuando no hay config.yaml"""
+        return {
+            'logging': {
+                'level': os.environ.get('LOG_LEVEL', 'INFO'),
+                'format': os.environ.get('LOG_FORMAT', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            },
+            'cache': {
+                'host': os.environ.get('REDIS_HOST', 'localhost'),
+                'port': int(os.environ.get('REDIS_PORT', '6379')),
+                'db': int(os.environ.get('REDIS_DB', '0')),
+                'ttl': int(os.environ.get('CACHE_TTL', '3600'))
+            },
+            'apis': {
+                'binance': {
+                    'api_key': os.environ.get('BINANCE_API_KEY', ''),
+                    'api_secret': os.environ.get('BINANCE_API_SECRET', '')
+                },
+                'finnhub': {
+                    'api_key': os.environ.get('FINNHUB_API_KEY', '')
+                },
+                'polygon': {
+                    'api_key': os.environ.get('POLYGON_API_KEY', '')
+                },
+                'twelvedata': {
+                    'api_key': os.environ.get('TWELVEDATA_API_KEY', '')
+                },
+                'alphavantage': {
+                    'api_key': os.environ.get('ALPHAVANTAGE_API_KEY', '')
+                },
+                'ninjaapis': {
+                    'api_key': os.environ.get('NINJAAPIS_API_KEY', '')
+                }
+            }
+        }
     
     def _setup_logging(self) -> logging.Logger:
         logger = logging.getLogger('MarketDataLoader')
-        log_config = self.config['logging']
+        log_config = self.config.get('logging', {})
+        log_level = log_config.get('level', 'INFO')
+        log_format = log_config.get('format', '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        
         # Crear carpeta de logs si no existe
         log_dir = Path(__file__).resolve().parent.parent / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -39,22 +82,27 @@ class MarketDataLoader:
         # Configurar logging con archivo
         logging.basicConfig(
             filename=str(log_file),
-            level=log_config['level'],
-            format=log_config['format']
+            level=getattr(logging, log_level.upper(), logging.INFO),
+            format=log_format
         )
         return logger
     
     def _setup_cache(self) -> redis.Redis:
-        cache_config = self.config['cache']
-        return redis.Redis(
-            host=cache_config['host'],
-            port=cache_config['port'],
-            db=cache_config['db']
-        )
+        cache_config = self.config.get('cache', {})
+        try:
+            return redis.Redis(
+                host=cache_config.get('host', 'localhost'),
+                port=cache_config.get('port', 6379),
+                db=cache_config.get('db', 0)
+            )
+        except Exception as e:
+            # Si Redis no está disponible, crear un objeto mock o None
+            logging.warning(f"Redis no disponible, funcionando sin caché: {str(e)}")
+            return None
     
     def _setup_providers(self) -> Dict[str, Any]:
         providers = {}
-        apis_config = self.config['apis']
+        apis_config = self.config.get('apis', {})
         
         provider_mapping = {
             'binance': BinanceProvider,
@@ -77,6 +125,8 @@ class MarketDataLoader:
     
     def _get_cached_data(self, key: str) -> Optional[Dict[str, Any]]:
         """Intenta obtener datos del caché"""
+        if self.cache is None:
+            return None
         try:
             data = self.cache.get(key)
             if data:
@@ -87,10 +137,13 @@ class MarketDataLoader:
     
     def _cache_data(self, key: str, data: Dict[str, Any]) -> None:
         """Guarda datos en el caché"""
+        if self.cache is None:
+            return
         try:
+            ttl = self.config.get('cache', {}).get('ttl', 3600)
             self.cache.setex(
                 key,
-                self.config['cache']['ttl'],
+                ttl,
                 json.dumps(data)
             )
         except Exception as e:
@@ -199,6 +252,8 @@ class MarketDataLoader:
     
     def clear_cache(self, symbol: Optional[str] = None) -> None:
         """Limpia el caché para un símbolo o todo el caché"""
+        if self.cache is None:
+            return
         try:
             if symbol:
                 self.cache.delete(f"market_data:{symbol}")

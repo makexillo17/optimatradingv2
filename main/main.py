@@ -16,9 +16,12 @@ class OptimatradingMain:
     def __init__(self):
         self.logger = setup_logger("OptimatradingMain")
         config_path = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
-        if not config_path.exists():
-            raise FileNotFoundError(f"No se encontró el archivo de configuración en: {config_path}")
-        self.data_loader = DataLoader(config_path=str(config_path))
+        if config_path.exists():
+            self.logger.info(f"Cargando configuración desde: {config_path}")
+            self.data_loader = DataLoader(config_path=str(config_path))
+        else:
+            self.logger.warning(f"No se encontró config.yaml en {config_path}. Usando variables de entorno.")
+            self.data_loader = DataLoader(config_path=None)
         self.dispatcher = ModuleDispatcher()
         self.consensus = ConsensusAnalyzer()
 
