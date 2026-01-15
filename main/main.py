@@ -76,20 +76,21 @@ class OptimatradingMain:
     def _load_market_data(self, asset_symbol: str) -> Optional[Dict[str, Any]]:
         """Carga todos los datos necesarios para el análisis."""
         try:
+            # Esta es la ÚNICA que funciona actualmente
             market_data = self.data_loader.load_market_data(asset_symbol)
-
-            # Extiende con datos específicos de cada módulo
-            market_data.update(self.data_loader.load_broker_data(asset_symbol))
-            market_data.update(self.data_loader.load_carry_data(asset_symbol))
-            market_data.update(self.data_loader.load_options_data(asset_symbol))
-            market_data.update(self.data_loader.load_liquidity_data(asset_symbol))
-            market_data.update(self.data_loader.load_market_making_data(asset_symbol))
-            market_data.update(self.data_loader.load_pairs_data(asset_symbol))
-            market_data.update(self.data_loader.load_smc_data(asset_symbol))
-            market_data.update(self.data_loader.load_stat_arb_data(asset_symbol))
-            market_data.update(self.data_loader.load_volatility_data(asset_symbol))
-            market_data.update(self.data_loader.load_yield_data(asset_symbol))
-
+            
+            # --- COMENTAR ESTO PARA EVITAR CRASH ---
+            # market_data.update(self.data_loader.load_broker_data(asset_symbol))
+            # market_data.update(self.data_loader.load_carry_data(asset_symbol))
+            # market_data.update(self.data_loader.load_options_data(asset_symbol))
+            # market_data.update(self.data_loader.load_liquidity_data(asset_symbol))
+            # market_data.update(self.data_loader.load_market_making_data(asset_symbol))
+            # market_data.update(self.data_loader.load_pairs_data(asset_symbol))
+            # market_data.update(self.data_loader.load_smc_data(asset_symbol))
+            # market_data.update(self.data_loader.load_stat_arb_data(asset_symbol))
+            # market_data.update(self.data_loader.load_volatility_data(asset_symbol))
+            # market_data.update(self.data_loader.load_yield_data(asset_symbol))
+            
             return market_data
 
         except Exception as e:
