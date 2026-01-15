@@ -16,13 +16,23 @@ class OptimatradingMain:
     def __init__(self):
         self.logger = setup_logger("OptimatradingMain")
         config_path = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
-        if config_path.exists():
-            self.logger.info(f"Cargando configuración desde: {config_path}")
-            self.data_loader = DataLoader(config_path=str(config_path))
+        
+        # Determinar la ruta a pasar (String o None)
+        final_config_path = str(config_path) if config_path.exists() else None
+        
+        if final_config_path:
+            self.logger.info(f"Cargando configuración desde: {final_config_path}")
         else:
-            self.logger.warning(f"No se encontró config.yaml en {config_path}. Usando variables de entorno.")
-            self.data_loader = DataLoader(config_path=None)
-        self.dispatcher = ModuleDispatcher()
+            self.logger.warning(f"No se encontró config.yaml. Usando configuración por defecto en memoria.")
+
+        # Inicializar DataLoader
+        self.data_loader = DataLoader(config_path=final_config_path)
+        
+        # --- AQUÍ ESTABA EL ERROR ---
+        # Antes: self.dispatcher = ModuleDispatcher()
+        # Ahora: Le pasamos el path (o None)
+        self.dispatcher = ModuleDispatcher(config_path=final_config_path)
+        
         self.consensus = ConsensusAnalyzer()
 
     # ----------------------------------------------------
