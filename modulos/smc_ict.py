@@ -15,49 +15,93 @@ class SmcIctModule(BaseAnalysisModule):
         ]
         
     def analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analiza el mercado usando conceptos SMC/ICT"""
-        if not self.validate_data(data, self.required_fields):
-            return self.format_result("neutral", 0.0, "Datos insuficientes")
+        """Analiza el mercado usando conceptos SMC/ICT con RSI"""
+        try:
+            # Obtener el DataFrame de market_data
+            market_data = data.get('market_data')
             
-        # Analizar componentes
-        order_flow = self._analyze_order_flow(
-            data['price_data'],
-            data['volume_data']
-        )
-        
-        structure = self._analyze_market_structure(
-            data['market_structure']
-        )
-        
-        liquidity = self._analyze_liquidity_levels(
-            data['liquidity_levels'],
-            data['order_blocks']
-        )
-        
-        # Calcular señales
-        signals = [
-            order_flow['signal'],
-            structure['signal'],
-            liquidity['signal']
-        ]
-        
-        weights = [0.4, 0.3, 0.3]
-        confidence = self.calculate_confidence(signals, weights)
-        
-        # Determinar recomendación
-        if confidence > 0.7:
-            recommendation = "long" if np.mean(signals) > 0 else "short"
-        else:
-            recommendation = "neutral"
+            if market_data is None or not isinstance(market_data, pd.DataFrame):
+                print(f"DEBUG SMC: No se recibió DataFrame válido. Tipo: {type(market_data)}")
+                return self.format_result("neutral", 0.0, "Datos insuficientes: No hay DataFrame")
             
-        justification = self._generate_justification(
-            order_flow,
-            structure,
-            liquidity,
-            recommendation
-        )
+            if len(market_data) < 14:
+                print(f"DEBUG SMC: Solo se recibieron {len(market_data)} velas, se necesitan al menos 14 para RSI")
+                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
+            
+            print(f"DEBUG SMC: Recibí {len(market_data)} velas. Columnas: {list(market_data.columns)}")
+            
+            # Calcular RSI de 14 periodos
+            rsi_value = self._calculate_rsi(market_data, period=14)
+            
+            print(f"DEBUG SMC: RSI actual: {rsi_value:.2f}")
+            
+            # Lógica de Trading basada en RSI
+            if rsi_value < 30:
+                recommendation = "long"  # BUY en términos de trading
+                confidence = 0.8
+                justification = f"RSI en sobreventa ({rsi_value:.2f}) - Oportunidad SMC"
+            elif rsi_value > 70:
+                recommendation = "short"  # SELL en términos de trading
+                confidence = 0.8
+                justification = f"RSI en sobrecompra ({rsi_value:.2f}) - Oportunidad SMC"
+            else:
+                recommendation = "neutral"  # HOLD
+                confidence = 0.5
+                justification = f"RSI neutral ({rsi_value:.2f}) - Sin señal clara"
+            
+            return self.format_result(recommendation, confidence, justification)
+            
+        except Exception as e:
+            print(f"DEBUG SMC: Error en análisis: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            return self.format_result("neutral", 0.0, f"Error en análisis SMC: {str(e)}")
+    
+    def _calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> float:
+        """
+        Calcula el RSI (Relative Strength Index) manualmente
         
-        return self.format_result(recommendation, confidence, justification)
+        Args:
+            df: DataFrame con columnas 'close'
+            period: Período para el cálculo (default: 14)
+            
+        Returns:
+            Valor del RSI (0-100)
+        """
+        if 'close' not in df.columns:
+            raise ValueError("El DataFrame debe tener una columna 'close'")
+        
+        # Calcular cambios de precio
+        delta = df['close'].diff()
+        
+        # Separar ganancias y pérdidas
+        gain = delta.where(delta > 0, 0.0)
+        loss = -delta.where(delta < 0, 0.0)
+        
+        # Calcular promedio móvil exponencial de ganancias y pérdidas
+        # Usar promedio simple para los primeros valores
+        avg_gain = gain.rolling(window=period, min_periods=period).mean()
+        avg_loss = loss.rolling(window=period, min_periods=period).mean()
+        
+        # Calcular RS (Relative Strength)
+        rs = avg_gain / avg_loss
+        
+        # Calcular RSI
+        rsi = 100 - (100 / (1 + rs))
+        
+        # Retornar el último valor válido
+        rsi_value = rsi.iloc[-1]
+        
+        # Si es NaN, calcular con promedio simple
+        if pd.isna(rsi_value):
+            avg_gain_simple = gain.tail(period).mean()
+            avg_loss_simple = loss.tail(period).mean()
+            if avg_loss_simple == 0:
+                return 100.0
+            rs_simple = avg_gain_simple / avg_loss_simple
+            rsi_value = 100 - (100 / (1 + rs_simple))
+        
+        return float(rsi_value)
     
     def _analyze_order_flow(
         self,
