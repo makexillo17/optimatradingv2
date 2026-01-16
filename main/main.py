@@ -39,7 +39,7 @@ class OptimatradingMain:
     # ----------------------------------------------------
     # 1) Método público
     # ----------------------------------------------------
-    def run_analysis(self, asset_symbol: str) -> Dict[str, Any]:
+    def run_analysis(self, asset_symbol: str, current_price: Optional[float] = None) -> Dict[str, Any]:
         """Ejecuta el pipeline completo de análisis para un activo."""
         try:
             self.logger.info(f"Iniciando análisis para {asset_symbol}")
@@ -52,7 +52,16 @@ class OptimatradingMain:
             # 2. Ejecutar módulos analíticos
             module_results = self._run_analysis_modules(market_data)
             if not module_results:
-                return self._generate_error_response("Error ejecutando módulos de análisis")
+                # Si module_results está vacío, devolver respuesta con precio y status
+                return {
+                    "timestamp": datetime.now().isoformat(),
+                    "asset_symbol": asset_symbol,
+                    "recommendation": "HOLD",
+                    "current_price": float(current_price) if current_price is not None else None,
+                    "status": "waiting_strategies",
+                    "module_results": {},
+                    "consensus_details": {}
+                }
 
             # 3. Generar consenso
             consensus_result = self._generate_consensus(module_results)
@@ -209,15 +218,16 @@ def analyze(asset_symbol: str):
             base = asset_symbol[:-3]
             asset_symbol = f"{base}/USD"
     
-    # Cargar datos de broker usando ccxt
+    # Capturar el precio actual del DataFrame
+    current_price = None
     try:
         loader = optimatrading.data_loader
         df = loader.load_broker_data(asset_symbol, timeframe='1h', limit=100)
         
-        # Imprimir el precio de cierre más reciente
+        # Capturar el precio actual (precio de cierre más reciente)
         if len(df) > 0:
-            latest_close = df['close'].iloc[-1]
-            print(f"Precio de cierre más reciente para {asset_symbol}: {latest_close}")
+            current_price = float(df['close'].iloc[-1])  # Convertir a float nativo de Python
+            print(f"Precio de cierre más reciente para {asset_symbol}: {current_price}")
         else:
             print(f"No se obtuvieron datos para {asset_symbol}")
     except Exception as e:
@@ -225,7 +235,7 @@ def analyze(asset_symbol: str):
         # Continuar con el análisis aunque falle la carga de broker data
     
     try:
-        return optimatrading.run_analysis(asset_symbol)
+        return optimatrading.run_analysis(asset_symbol, current_price=current_price)
     except Exception as e:
         print(traceback.format_exc())
         return {
