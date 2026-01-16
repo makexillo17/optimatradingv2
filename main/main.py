@@ -196,6 +196,33 @@ def root():
 
 @app.get("/analyze/{asset_symbol}")
 def analyze(asset_symbol: str):
+    # Normalizar el símbolo para ccxt (asegurar formato correcto)
+    # Si viene como 'BTCUSDT', convertirlo a 'BTC/USDT'
+    if '/' not in asset_symbol and len(asset_symbol) > 3:
+        # Intentar detectar el par (asumiendo que los últimos 4 caracteres son la moneda base)
+        # Por ejemplo: BTCUSDT -> BTC/USDT
+        if asset_symbol.endswith('USDT'):
+            base = asset_symbol[:-4]
+            asset_symbol = f"{base}/USDT"
+        elif asset_symbol.endswith('USD'):
+            base = asset_symbol[:-3]
+            asset_symbol = f"{base}/USD"
+    
+    # Cargar datos de broker usando ccxt
+    try:
+        loader = optimatrading.data_loader
+        df = loader.load_broker_data(asset_symbol, timeframe='1h', limit=100)
+        
+        # Imprimir el precio de cierre más reciente
+        if len(df) > 0:
+            latest_close = df['close'].iloc[-1]
+            print(f"Precio de cierre más reciente para {asset_symbol}: {latest_close}")
+        else:
+            print(f"No se obtuvieron datos para {asset_symbol}")
+    except Exception as e:
+        print(f"Error cargando datos de broker para {asset_symbol}: {str(e)}")
+        # Continuar con el análisis aunque falle la carga de broker data
+    
     return optimatrading.run_analysis(asset_symbol)
 
 

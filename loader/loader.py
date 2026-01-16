@@ -3,6 +3,8 @@ import logging
 import redis
 import json
 import os
+import ccxt
+import pandas as pd
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -261,4 +263,64 @@ class MarketDataLoader:
                 self.cache.flushdb()
             self.logger.info(f"Cache cleared for {symbol if symbol else 'all symbols'}")
         except Exception as e:
-            self.logger.error(f"Error clearing cache: {str(e)}") 
+            self.logger.error(f"Error clearing cache: {str(e)}")
+    
+    def load_broker_data(self, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
+        """
+        Descarga velas OHLCV de Binance usando ccxt y devuelve un DataFrame de Pandas.
+        
+        Args:
+            symbol: Símbolo del par (ej: 'BTC/USDT')
+            timeframe: Timeframe de las velas (ej: '1m', '5m', '1h', '1d')
+            limit: Número de velas a descargar (máximo 1000)
+            
+        Returns:
+            DataFrame de Pandas con columnas: timestamp, open, high, low, close, volume
+            
+        Raises:
+            Exception: Si falla la conexión o la descarga de datos
+        """
+        try:
+            # Conectar a Binance (API pública, no requiere autenticación)
+            exchange = ccxt.binance({
+                'enableRateLimit': True,
+                'options': {
+                    'defaultType': 'spot'  # Usar mercado spot
+                }
+            })
+            
+            self.logger.info(f"Descargando {limit} velas de {symbol} en timeframe {timeframe} desde Binance")
+            
+            # Descargar velas OHLCV
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+            
+            if not ohlcv or len(ohlcv) == 0:
+                raise Exception(f"No se obtuvieron datos para {symbol}")
+            
+            # Convertir a DataFrame de Pandas
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            
+            # Convertir timestamp a datetime legible
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            
+            # Asegurar que todos los números sean float
+            numeric_columns = ['open', 'high', 'low', 'close', 'volume']
+            for col in numeric_columns:
+                df[col] = df[col].astype(float)
+            
+            self.logger.info(f"Descargadas {len(df)} velas exitosamente para {symbol}")
+            
+            return df
+            
+        except ccxt.NetworkError as e:
+            error_msg = f"Error de red al conectar con Binance: {str(e)}"
+            self.logger.error(error_msg)
+            raise Exception(error_msg) from e
+        except ccxt.ExchangeError as e:
+            error_msg = f"Error de la API de Binance: {str(e)}"
+            self.logger.error(error_msg)
+            raise Exception(error_msg) from e
+        except Exception as e:
+            error_msg = f"Error inesperado descargando datos de Binance: {str(e)}"
+            self.logger.error(error_msg)
+            raise Exception(error_msg) from e 
