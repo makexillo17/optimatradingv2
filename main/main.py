@@ -1,4 +1,5 @@
 import logging
+import traceback
 from typing import Dict, Any, List, Optional
 import numpy as np
 from datetime import datetime
@@ -223,7 +224,19 @@ def analyze(asset_symbol: str):
         print(f"Error cargando datos de broker para {asset_symbol}: {str(e)}")
         # Continuar con el análisis aunque falle la carga de broker data
     
-    return optimatrading.run_analysis(asset_symbol)
+    try:
+        return optimatrading.run_analysis(asset_symbol)
+    except Exception as e:
+        print(f'CRITICAL ERROR: {traceback.format_exc()}')
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "recommendation": "neutral",
+            "confidence": 0.0,
+            "justification": "Error ejecutando módulos de análisis",
+            "module_results": {},
+            "consensus_details": {},
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":
