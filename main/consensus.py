@@ -107,8 +107,10 @@ class ConsensusAnalyzer:
         for i, module in enumerate(modules):
             if module in module_results:
                 result = module_results[module]
-                signal = 1.0 if result['recommendation'] == 'long' else -1.0 if result['recommendation'] == 'short' else 0.0
-                raw_signals[i] = signal * result['confidence']
+                recommendation = result.get('recommendation', 'neutral')
+                signal = 1.0 if recommendation == 'long' else -1.0 if recommendation == 'short' else 0.0
+                confidence = result.get('confidence', 0.0)
+                raw_signals[i] = signal * confidence
                 
         # Ajustar por correlaciones
         adjusted_signals = {}
@@ -133,7 +135,7 @@ class ConsensusAnalyzer:
         
         for module, result in module_results.items():
             base_weight = self.module_weights.get(module, 1.0)
-            confidence = result['confidence']
+            confidence = result.get('confidence', 0.0)
             
             # Ajustar peso por confianza
             dynamic_weight = base_weight * confidence
@@ -220,7 +222,8 @@ class ConsensusAnalyzer:
         total_count = len(module_results)
         
         for result in module_results.values():
-            if result['recommendation'] == consensus_recommendation:
+            recommendation = result.get('recommendation', 'neutral')
+            if recommendation == consensus_recommendation:
                 consistent_count += 1
                 
         return consistent_count / total_count
@@ -236,8 +239,10 @@ class ConsensusAnalyzer:
         parts = []
         
         # Analizar consenso general
-        signal_desc = "alcista" if consensus['signal'] > 0 else "bajista" if consensus['signal'] < 0 else "neutral"
-        parts.append(f"Señal de consenso {signal_desc} con {consensus['confidence']:.1%} de confianza")
+        signal = consensus.get('signal', 0.0)
+        confidence = consensus.get('confidence', 0.0)
+        signal_desc = "alcista" if signal > 0 else "bajista" if signal < 0 else "neutral"
+        parts.append(f"Señal de consenso {signal_desc} con {confidence:.1%} de confianza")
         
         # Identificar módulos más influyentes
         weighted_signals = {
@@ -253,18 +258,21 @@ class ConsensusAnalyzer:
         
         # Agregar justificaciones de módulos principales
         for module, _ in top_modules:
-            result = module_results[module]
-            if result['justification']:
-                parts.append(f"{module}: {result['justification']}")
+            result = module_results.get(module, {})
+            justification = result.get('justification', '')
+            if justification:
+                parts.append(f"{module}: {justification}")
                 
         # Analizar consistencia
-        if consensus['consistency'] > 0.7:
+        consistency = consensus.get('consistency', 0.0)
+        if consistency > 0.7:
             parts.append("Alta consistencia entre módulos")
-        elif consensus['consistency'] < 0.3:
+        elif consistency < 0.3:
             parts.append("Baja consistencia entre módulos sugiere cautela")
             
         # Analizar cobertura
-        if consensus['coverage'] < 0.5:
+        coverage = consensus.get('coverage', 0.0)
+        if coverage < 0.5:
             parts.append("Análisis basado en conjunto limitado de módulos")
             
         return ". ".join(parts) + "."

@@ -265,7 +265,7 @@ class MarketDataLoader:
         except Exception as e:
             self.logger.error(f"Error clearing cache: {str(e)}")
     
-    def load_broker_data(self, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
+    def load_broker_data(self, symbol: str, timeframe: str = '1h', limit: int = 500) -> pd.DataFrame:
         """
         Descarga velas OHLCV de Kraken usando ccxt y devuelve un DataFrame de Pandas.
         Usa Kraken en lugar de Binance para evitar geobloqueos desde EE.UU.

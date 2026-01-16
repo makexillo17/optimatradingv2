@@ -233,7 +233,7 @@ def analyze(asset_symbol: str):
     market_df = None
     try:
         loader = optimatrading.data_loader
-        df = loader.load_broker_data(asset_symbol, timeframe='1h', limit=100)
+        df = loader.load_broker_data(asset_symbol, timeframe='1h', limit=500)
         
         # Guardar el DataFrame para pasarlo a los módulos
         market_df = df
