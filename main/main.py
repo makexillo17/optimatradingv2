@@ -39,7 +39,7 @@ class OptimatradingMain:
     # ----------------------------------------------------
     # 1) Método público
     # ----------------------------------------------------
-    def run_analysis(self, asset_symbol: str, current_price: Optional[float] = None) -> Dict[str, Any]:
+    def run_analysis(self, asset_symbol: str, current_price: Optional[float] = None, market_df: Optional[Any] = None) -> Dict[str, Any]:
         """Ejecuta el pipeline completo de análisis para un activo."""
         try:
             self.logger.info(f"Iniciando análisis para {asset_symbol}")
@@ -49,8 +49,8 @@ class OptimatradingMain:
             if not market_data:
                 return self._generate_error_response("Error cargando datos de mercado")
 
-            # 2. Ejecutar módulos analíticos
-            module_results = self._run_analysis_modules(market_data)
+            # 2. Ejecutar módulos analíticos - pasar el DataFrame si está disponible
+            module_results = self._run_analysis_modules(market_df if market_df is not None else market_data)
             if not module_results:
                 # Si module_results está vacío, devolver respuesta con precio y status
                 return {
@@ -110,8 +110,13 @@ class OptimatradingMain:
     # ----------------------------------------------------
     # 3) Ejecutar módulos
     # ----------------------------------------------------
-    def _run_analysis_modules(self, market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Ejecuta todos los módulos de análisis."""
+    def _run_analysis_modules(self, market_data) -> Optional[Dict[str, Any]]:
+        """
+        Ejecuta todos los módulos de análisis.
+        
+        Args:
+            market_data: Puede ser un DataFrame de pandas o un Dict con datos de mercado
+        """
         try:
             module_results: Dict[str, Any] = {}
             modules = [
@@ -128,11 +133,16 @@ class OptimatradingMain:
             ]
 
             for module_name in modules:
-                result = self.dispatcher.run_module(module_name, market_data)
-                if result:
-                    module_results[module_name] = result
-                else:
-                    self.logger.warning(f"Módulo {module_name} no generó resultados")
+                try:
+                    result = self.dispatcher.run_module(module_name, market_data)
+                    if result:
+                        module_results[module_name] = result
+                    else:
+                        self.logger.warning(f"Módulo {module_name} no generó resultados")
+                except Exception as e:
+                    # Error individual del módulo - no rompe el programa
+                    self.logger.error(f"Error ejecutando módulo {module_name}: {str(e)}")
+                    continue
 
             return module_results if module_results else None
 
@@ -218,11 +228,15 @@ def analyze(asset_symbol: str):
             base = asset_symbol[:-3]
             asset_symbol = f"{base}/USD"
     
-    # Capturar el precio actual del DataFrame
+    # Capturar el precio actual del DataFrame y obtener el DataFrame completo
     current_price = None
+    market_df = None
     try:
         loader = optimatrading.data_loader
         df = loader.load_broker_data(asset_symbol, timeframe='1h', limit=100)
+        
+        # Guardar el DataFrame para pasarlo a los módulos
+        market_df = df
         
         # Capturar el precio actual (precio de cierre más reciente)
         if len(df) > 0:
@@ -235,7 +249,7 @@ def analyze(asset_symbol: str):
         # Continuar con el análisis aunque falle la carga de broker data
     
     try:
-        return optimatrading.run_analysis(asset_symbol, current_price=current_price)
+        return optimatrading.run_analysis(asset_symbol, current_price=current_price, market_df=market_df)
     except Exception as e:
         print(traceback.format_exc())
         return {
