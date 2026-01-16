@@ -267,10 +267,11 @@ class MarketDataLoader:
     
     def load_broker_data(self, symbol: str, timeframe: str = '1h', limit: int = 100) -> pd.DataFrame:
         """
-        Descarga velas OHLCV de Binance usando ccxt y devuelve un DataFrame de Pandas.
+        Descarga velas OHLCV de Kraken usando ccxt y devuelve un DataFrame de Pandas.
+        Usa Kraken en lugar de Binance para evitar geobloqueos desde EE.UU.
         
         Args:
-            symbol: Símbolo del par (ej: 'BTC/USDT')
+            symbol: Símbolo del par (ej: 'BTC/USD' o 'BTC/USDT')
             timeframe: Timeframe de las velas (ej: '1m', '5m', '1h', '1d')
             limit: Número de velas a descargar (máximo 1000)
             
@@ -281,15 +282,12 @@ class MarketDataLoader:
             Exception: Si falla la conexión o la descarga de datos
         """
         try:
-            # Conectar a Binance (API pública, no requiere autenticación)
-            exchange = ccxt.binance({
-                'enableRateLimit': True,
-                'options': {
-                    'defaultType': 'spot'  # Usar mercado spot
-                }
+            # Conectar a Kraken (API pública, permite conexiones desde EE.UU.)
+            exchange = ccxt.kraken({
+                'enableRateLimit': True
             })
             
-            self.logger.info(f"Descargando {limit} velas de {symbol} en timeframe {timeframe} desde Binance")
+            self.logger.info(f"Descargando {limit} velas de {symbol} en timeframe {timeframe} desde Kraken")
             
             # Descargar velas OHLCV
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
@@ -313,14 +311,14 @@ class MarketDataLoader:
             return df
             
         except ccxt.NetworkError as e:
-            error_msg = f"Error de red al conectar con Binance: {str(e)}"
+            error_msg = f"Error de red al conectar con Kraken: {str(e)}"
             self.logger.error(error_msg)
             raise Exception(error_msg) from e
         except ccxt.ExchangeError as e:
-            error_msg = f"Error de la API de Binance: {str(e)}"
+            error_msg = f"Error de la API de Kraken: {str(e)}"
             self.logger.error(error_msg)
             raise Exception(error_msg) from e
         except Exception as e:
-            error_msg = f"Error inesperado descargando datos de Binance: {str(e)}"
+            error_msg = f"Error inesperado descargando datos de Kraken: {str(e)}"
             self.logger.error(error_msg)
             raise Exception(error_msg) from e 

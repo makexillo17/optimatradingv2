@@ -245,3 +245,21 @@ class ModuleDispatcher:
             }
         }
         return stats
+    
+    def run_module(self, module_name: str, analysis_results: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Método llamado desde main.py para ejecutar un módulo específico.
+        
+        Args:
+            module_name: Nombre del módulo a ejecutar (ej: 'broker_behavior')
+            analysis_results: Datos de análisis para procesar
+            
+        Returns:
+            Diccionario con resultados del módulo o None
+        """
+        self.logger.info(f"Dispatcher recibió resultados para módulo: {module_name}")
+        self.logger.info(f"Dispatcher recibió {len(analysis_results)} resultados de análisis")
+        
+        # Por ahora, devolver None o diccionario vacío para no romper el programa
+        # TODO: Implementar lógica real de ejecución de módulos
+        return None
