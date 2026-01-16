@@ -227,7 +227,7 @@ def analyze(asset_symbol: str):
     try:
         return optimatrading.run_analysis(asset_symbol)
     except Exception as e:
-        print(f'CRITICAL ERROR: {traceback.format_exc()}')
+        print(traceback.format_exc())
         return {
             "timestamp": datetime.now().isoformat(),
             "recommendation": "neutral",
@@ -235,7 +235,7 @@ def analyze(asset_symbol: str):
             "justification": "Error ejecutando módulos de análisis",
             "module_results": {},
             "consensus_details": {},
-            "error": str(e)
+            "error": f"ERROR REAL: {str(e)}"
         }
 
 
