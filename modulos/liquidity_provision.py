@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -19,16 +19,15 @@ class LiquidityProvisionModule(BaseAnalysisModule):
             if len(market_data) < 20:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
             
+            from ta.volatility import BollingerBands
+
             # Calcular Bandas de Bollinger (20, 2)
-            bbands = ta.bbands(market_data['close'], length=20, std=2)
-            
-            if bbands is None or len(bbands) == 0:
-                return self.format_result("neutral", 0.0, "Error calculando Bandas de Bollinger")
+            bb_indicator = BollingerBands(close=market_data['close'], window=20, window_dev=2)
             
             # Obtener valores actuales
             current_price = market_data['close'].iloc[-1]
-            lower_band = bbands.iloc[-1, 0] if isinstance(bbands, pd.DataFrame) else bbands.iloc[-1]
-            upper_band = bbands.iloc[-1, 2] if isinstance(bbands, pd.DataFrame) else bbands.iloc[-1]
+            lower_band = bb_indicator.bollinger_lband().iloc[-1]
+            upper_band = bb_indicator.bollinger_hband().iloc[-1]
             
             # Verificar si el precio toca las bandas
             price_tolerance = (upper_band - lower_band) * 0.02  # 2% de tolerancia

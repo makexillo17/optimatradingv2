@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -19,9 +19,11 @@ class CarryTradeModule(BaseAnalysisModule):
             if len(market_data) < 200:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (se necesitan 200)")
             
+            from ta.trend import EMAIndicator
+
             # Calcular EMA 50 y EMA 200
-            ema_50 = ta.ema(market_data['close'], length=50)
-            ema_200 = ta.ema(market_data['close'], length=200)
+            ema_50 = EMAIndicator(close=market_data['close'], window=50).ema_indicator()
+            ema_200 = EMAIndicator(close=market_data['close'], window=200).ema_indicator()
             
             if ema_50 is None or ema_200 is None or len(ema_50) < 2 or len(ema_200) < 2:
                 return self.format_result("neutral", 0.0, "Error calculando EMAs")

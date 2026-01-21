@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -20,8 +20,10 @@ class BrokerBehaviorModule(BaseAnalysisModule):
             if len(market_data) < 20:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
             
+            from ta.trend import SMAIndicator
+
             # Calcular promedio de volumen de 20 periodos
-            volume_ma = market_data['volume'].rolling(window=20).mean().iloc[-1]
+            volume_ma = SMAIndicator(close=market_data['volume'], window=20).sma_indicator().iloc[-1]
             current_volume = market_data['volume'].iloc[-1]
             
             # Verificar si hay actividad institucional (volumen > 2.5x promedio)

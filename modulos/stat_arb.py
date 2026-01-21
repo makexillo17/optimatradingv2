@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -19,17 +19,11 @@ class StatArbModule(BaseAnalysisModule):
             if len(market_data) < 14:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
             
+            from ta.momentum import StochasticOscillator
+
             # Calcular Oscilador Estocástico
-            stoch = ta.stoch(market_data['high'], market_data['low'], market_data['close'])
-            
-            if stoch is None or len(stoch) == 0:
-                return self.format_result("neutral", 0.0, "Error calculando Estocástico")
-            
-            # Obtener valor actual del %K (primer componente)
-            if isinstance(stoch, pd.DataFrame):
-                stoch_k = stoch.iloc[:, 0] if len(stoch.columns) > 0 else None
-            else:
-                stoch_k = stoch
+            stoch_indicator = StochasticOscillator(high=market_data['high'], low=market_data['low'], close=market_data['close'])
+            stoch_k = stoch_indicator.stoch()
             
             if stoch_k is None or len(stoch_k) == 0:
                 return self.format_result("neutral", 0.0, "Error obteniendo Estocástico %K")

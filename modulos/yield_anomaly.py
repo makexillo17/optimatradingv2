@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -19,19 +19,14 @@ class YieldAnomalyModule(BaseAnalysisModule):
             if len(market_data) < 26:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
             
+            from ta.trend import MACD
+
             # Calcular MACD
-            macd = ta.macd(market_data['close'])
-            
-            if macd is None or len(macd) == 0:
-                return self.format_result("neutral", 0.0, "Error calculando MACD")
+            macd = MACD(close=market_data['close'])
             
             # Obtener valores actuales y anteriores
-            if isinstance(macd, pd.DataFrame):
-                macd_line = macd.iloc[:, 0] if len(macd.columns) > 0 else None
-                signal_line = macd.iloc[:, 2] if len(macd.columns) > 2 else None
-            else:
-                macd_line = macd
-                signal_line = None
+            macd_line = macd.macd()
+            signal_line = macd.macd_signal()
             
             if macd_line is None or len(macd_line) < 2:
                 return self.format_result("neutral", 0.0, "MACD insuficiente para detectar cruces")

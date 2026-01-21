@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -19,11 +19,11 @@ class DynamicHedgingModule(BaseAnalysisModule):
             if len(market_data) < 50:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (se necesitan 50)")
             
+            from ta.volatility import AverageTrueRange
+
             # Calcular ATR (14)
-            atr = ta.atr(market_data['high'], market_data['low'], market_data['close'], length=14)
-            
-            if atr is None or len(atr) == 0:
-                return self.format_result("neutral", 0.0, "Error calculando ATR")
+            atr_indicator = AverageTrueRange(high=market_data['high'], low=market_data['low'], close=market_data['close'], window=14)
+            atr = atr_indicator.average_true_range()
             
             current_atr = atr.iloc[-1]
             

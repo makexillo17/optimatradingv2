@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -19,18 +19,14 @@ class VolatilityArbModule(BaseAnalysisModule):
             if len(market_data) < 100:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (se necesitan 100)")
             
+            from ta.volatility import BollingerBands
+
             # Calcular Bandas de Bollinger
-            bbands = ta.bbands(market_data['close'], length=20, std=2)
-            
-            if bbands is None or len(bbands) == 0:
-                return self.format_result("neutral", 0.0, "Error calculando Bandas de Bollinger")
+            bb_indicator = BollingerBands(close=market_data['close'], window=20, window_dev=2)
             
             # Calcular ancho de las bandas
-            if isinstance(bbands, pd.DataFrame):
-                upper_band = bbands.iloc[:, 2] if len(bbands.columns) > 2 else None
-                lower_band = bbands.iloc[:, 0] if len(bbands.columns) > 0 else None
-            else:
-                upper_band = lower_band = None
+            upper_band = bb_indicator.bollinger_hband()
+            lower_band = bb_indicator.bollinger_lband()
             
             if upper_band is None or lower_band is None:
                 return self.format_result("neutral", 0.0, "Error obteniendo bandas de Bollinger")

@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
+
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -19,17 +19,15 @@ class MarketMakingModule(BaseAnalysisModule):
             if len(market_data) < 14:
                 return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
             
+            from ta.trend import ADXIndicator
+            from ta.momentum import RSIIndicator
+
             # Calcular ADX (14)
-            adx = ta.adx(market_data['high'], market_data['low'], market_data['close'], length=14)
-            
-            if adx is None or len(adx) == 0:
-                return self.format_result("neutral", 0.0, "Error calculando ADX")
-            
-            current_adx = adx.iloc[-1, 0] if isinstance(adx, pd.DataFrame) else adx.iloc[-1]
+            adx_indicator = ADXIndicator(high=market_data['high'], low=market_data['low'], close=market_data['close'], window=14)
+            current_adx = adx_indicator.adx().iloc[-1]
             
             # Calcular RSI
-            rsi = ta.rsi(market_data['close'], length=14)
-            current_rsi = rsi.iloc[-1] if rsi is not None and len(rsi) > 0 else 50
+            current_rsi = RSIIndicator(close=market_data['close'], window=14).rsi().iloc[-1]
             
             # Lógica: Si ADX < 20 (tendencia débil) y RSI entre 40 y 60 (neutral)
             if current_adx < 20 and 40 <= current_rsi <= 60:
