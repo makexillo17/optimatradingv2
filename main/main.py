@@ -12,6 +12,7 @@ from dispatcher.dispatcher import ModuleDispatcher
 from main.consensus import ConsensusAnalyzer
 from utils.logger import setup_logger
 from modulos.gap_sniper import GapSniperModule
+from modulos.database import init_db, save_signal     #  <-- Importar persistencia
 import ccxt
 
 import os
@@ -38,6 +39,9 @@ class OptimatradingMain:
         self.dispatcher = ModuleDispatcher(config_path=final_config_path)
         
         self.consensus = ConsensusAnalyzer()
+        
+        # Inicializar Base de Datos
+        init_db()
 
     # ----------------------------------------------------
     # 1) Método público
@@ -74,6 +78,16 @@ class OptimatradingMain:
                 consensus_result,
                 module_results,
                 asset_symbol,
+            )
+
+            # 5. Guardar Señal en Base de Datos (Persistencia)
+            # Guardamos SIEMPRE por ahora, para verificar flujo.
+            save_signal(
+                asset=asset_symbol,
+                signal=consensus_result["recommendation"],
+                confidence=consensus_result["confidence"],
+                justification=consensus_result["justification"],
+                raw_data=module_results  # Guardamos los resultados crudos de los módulos
             )
 
             self.logger.info(f"Análisis completado para {asset_symbol}")

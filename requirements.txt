@@ -38,6 +38,10 @@ scikit-learn==1.2.2
 ta==0.10.2
 
 
+# Database
+sqlalchemy
+psycopg2-binary
+
 # Infrastructure
 python-dotenv==0.20.0
 gunicorn==20.1.0
