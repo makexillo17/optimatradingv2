@@ -81,3 +81,30 @@ def save_signal(asset, signal, confidence, justification, raw_data):
         session.rollback()
     finally:
         session.close()
+
+def get_recent_signals(limit=5):
+    """Recupera las últimas señales guardadas."""
+    if not SessionLocal:
+        return []
+
+    session = SessionLocal()
+    try:
+        signals = session.query(Signal).order_by(Signal.timestamp.desc()).limit(limit).all()
+        # Convertir a dict para JSON
+        return [
+            {
+                "id": s.id,
+                "timestamp": s.timestamp.isoformat(),
+                "asset": s.asset,
+                "signal": s.signal,
+                "confidence": s.confidence,
+                "justification": s.justification,
+                "raw_data": s.raw_data
+            }
+            for s in signals
+        ]
+    except Exception as e:
+        logger.error(f"Error recuperando historial: {str(e)}")
+        return []
+    finally:
+        session.close()
