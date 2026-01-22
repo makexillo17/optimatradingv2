@@ -1,6 +1,7 @@
 import pandas as pd
 from typing import Dict, Any, Optional
 from .base_module import BaseAnalysisModule
+from ta.volatility import AverageTrueRange
 
 class GapSniperModule(BaseAnalysisModule):
     def __init__(self):
@@ -17,79 +18,71 @@ class GapSniperModule(BaseAnalysisModule):
             if market_data is None or not isinstance(market_data, pd.DataFrame):
                 return self.format_result("neutral", 0.0, "Datos insuficientes: No hay DataFrame")
             
-            # Necesitamos al menos 5 velas para iterar y buscar gaps recientes
-            if len(market_data) < 5:
-                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
+            # Necesitamos al menos 25 velas para ATR(14) y SMA(20) con solidez
+            if len(market_data) < 25:
+                return self.format_result("neutral", 0.0, f"Datos insuficientes: {len(market_data)} velas (Min 25 requiredo para ATR/Vol)")
             
-            # Obtener las últimas 5 velas para análisis
-            # Usaremos las últimas 3 para la detección estricta (A, B, C)
-            # A: antepenúltima (-3), B: penúltima (-2), C: actual/última (-1)
+            # --- CÁLCULO DE INDICADORES ---
+            # 1. ATR (14)
+            indicator_atr = AverageTrueRange(high=market_data['high'], low=market_data['low'], close=market_data['close'], window=14)
+            # El ATR actual es el último valor calculado
+            current_atr = indicator_atr.average_true_range().iloc[-1]
             
-            # Itera sobre las últimas velas, pero nos centraremos en el patrón más reciente
-            # El requerimiento dice: "Itera sobre las últimas 5 velas" y "Analiza secuencia de 3 velas: A, B, C"
+            # 2. Volumen Promedio (20)
+            # Calculamos la media móvil simple del volumen
+            volume_ma = market_data['volume'].rolling(window=20).mean().iloc[-1]
             
-            # Vamos a buscar el FVG más reciente en las últimas iteraciones posibles dentro de las 5 velas.
-            # Pero para simplificar y dar la señal actual, analizaremos principalmente las últimas 3 cerradas o en formación.
-            # Sin embargo, si el usuario pide iterar, quizás quiera ver si hubo alguno reciente.
-            # Dado el return único, priorizaremos la formación más reciente (las últimas 3 velas).
-            
-            # Definir velas A, B, C (indices relativos)
-            # C es la última (-1), B es la anterior (-2), A es la anterior a B (-3)
-            
-            candle_c = market_data.iloc[-1] # Actual/Ultima
+            # --- DEFINICIÓN DE VELAS ---
+            candle_c = market_data.iloc[-1] # Actual/Ultima (Signal Candle)
             candle_b = market_data.iloc[-2] # Penúltima
             candle_a = market_data.iloc[-3] # Antepenúltima
             
             signal = "neutral"
             confidence = 0.0
-            justification = "No se detectaron Fair Value Gaps recientes."
+            justification = "No se detectaron Fair Value Gaps validados."
+            
+            # --- DETECCIÓN DE GAPS ---
             
             # Detectar FVG Alcista (Bullish)
-            # Condición: Low(C) > High(A)
-            # Hay un GAP entre High A y Low C
+            # Condición Base: Low(C) > High(A)
             if candle_c['low'] > candle_a['high']:
-                signal = "long" # BUY
-                confidence = 0.9
                 gap_size = candle_c['low'] - candle_a['high']
-                justification = f"FVG Alcista detectado entre {candle_a['high']:.2f} (High A) y {candle_c['low']:.2f} (Low C). Tamaño: {gap_size:.2f}"
+                
+                # --- FILTROS DE CALIDAD ---
+                # 1. Filtro ATR: El gap debe ser relevante (> 0.5 * ATR)
+                if gap_size > (0.5 * current_atr):
+                    # 2. Filtro Volumen: La vela que deja el gap (C) debe tener fuerza
+                    # Usamos 0.9 como factor de tolerancia leve
+                    if candle_c['volume'] > (0.9 * volume_ma):
+                        signal = "long" # BUY
+                        confidence = 0.9
+                        justification = f"FVG Alcista detectado y VALIDADO. Gap: {gap_size:.2f} (>0.5 ATR: {0.5*current_atr:.2f}). Vol: {candle_c['volume']:.0f} (>MA: {volume_ma:.0f}). Rango: {candle_a['high']:.2f} - {candle_c['low']:.2f}"
+                    else:
+                        justification = f"FVG Alcista descartado por bajo volumen ({candle_c['volume']:.0f} vs MA {volume_ma:.0f})"
+                else:
+                    justification = f"FVG Alcista descartado por tamaño insignificante ({gap_size:.2f} vs Min {0.5*current_atr:.2f})"
                 
             # Detectar FVG Bajista (Bearish)
-            # Condición: High(C) < Low(A)
-            # Hay un GAP entre Low A y High C
+            # Condición Base: High(C) < Low(A)
             elif candle_c['high'] < candle_a['low']:
-                signal = "short" # SELL
-                confidence = 0.9
                 gap_size = candle_a['low'] - candle_c['high']
-                justification = f"FVG Bajista detectado entre {candle_a['low']:.2f} (Low A) y {candle_c['high']:.2f} (High C). Tamaño: {gap_size:.2f}"
+                
+                # --- FILTROS DE CALIDAD ---
+                # 1. Filtro ATR
+                if gap_size > (0.5 * current_atr):
+                     # 2. Filtro Volumen
+                     if candle_c['volume'] > (0.9 * volume_ma):
+                        signal = "short" # SELL
+                        confidence = 0.9
+                        justification = f"FVG Bajista detectado y VALIDADO. Gap: {gap_size:.2f} (>0.5 ATR: {0.5*current_atr:.2f}). Vol: {candle_c['volume']:.0f} (>MA: {volume_ma:.0f}). Rango: {candle_a['low']:.2f} - {candle_c['high']:.2f}"
+                     else:
+                        justification = f"FVG Bajista descartado por bajo volumen ({candle_c['volume']:.0f} vs MA {volume_ma:.0f})"
+                else:
+                     justification = f"FVG Bajista descartado por tamaño insignificante ({gap_size:.2f} vs Min {0.5*current_atr:.2f})"
             
-            # Si no se encuentra en la última secuencia, el prompt decia "Itera sobre las últimas 5 velas".
-            # Si queremos ser estrictos con "signal actual", el FVG debe estar vigente o recién formado.
-            # Si analizamos velas anteriores (-2, -3, -4), sería un FVG "viejo".
-            # Asumiré que la prioridad es la formación reciente que da la señal de entrada AHORA.
-            # Si analizamos hacia atrás, deberíamos verificar si el precio ya mitigó el FVG.
-            # Por simplicidad y siguiendo "Analiza la secuencia de 3 velas: A, B, C (actual)", me quedo con el análisis de las últimas 3.
-            
-            # Corrección: El prompt dice "Itera sobre las últimas 5 velas (para buscar gaps recientes)".
-            # Esto sugiere que si no hay uno en la última (C, B, A), mire una atrás (B, A, Pre-A).
-            # Implementaré la búsqueda iterativa en las últimas 5 velas (que permiten 3 secuencias de 3 velas).
-            
-            if signal == "neutral":
-                # Intentar buscar en la secuencia anterior: C(-2), B(-3), A(-4)
-                # Solo si tenemos suficientes datos
-                if len(market_data) >= 4:
-                    c_prev = market_data.iloc[-2]
-                    b_prev = market_data.iloc[-3]
-                    a_prev = market_data.iloc[-4]
-                    
-                    if c_prev['low'] > a_prev['high']:
-                         # FVG Alcista previo no mitigado? (simplificado, solo detección)
-                         signal = "long"
-                         confidence = 0.8 # Un poco menos de confianza por no ser inmediato
-                         justification = f"FVG Alcista reciente (vela previa) detectado entre {a_prev['high']:.2f} y {c_prev['low']:.2f}"
-                    elif c_prev['high'] < a_prev['low']:
-                         signal = "short"
-                         confidence = 0.8
-                         justification = f"FVG Bajista reciente (vela previa) detectado entre {a_prev['low']:.2f} y {c_prev['high']:.2f}"
+            # Nota: He removido la búsqueda iterativa en velas previas para simplificar y enfocar en la calidad
+            # de la señal actual, como se solicitó "Validar que el movimiento tenga fuerza".
+            # Si se desea reincorporar, debería aplicarse la misma lógica de filtros.
 
             return self.format_result(signal, confidence, justification)
             
