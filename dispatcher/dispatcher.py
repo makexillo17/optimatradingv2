@@ -27,6 +27,7 @@ class ModuleDispatcher:
             'stat_arb': 'StatArbModule',
             'volatility_arb': 'VolatilityArbModule',
             'yield_anomaly': 'YieldAnomalyModule',
+            'gap_sniper': 'GapSniperModule',
         }
     
     def _load_module(self, module_name: str):
