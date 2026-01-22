@@ -130,6 +130,7 @@ class OptimatradingMain:
                 "stat_arb",
                 "volatility_arb",
                 "yield_anomaly",
+                "gap_sniper",
             ]
 
             for module_name in modules:
