@@ -9,48 +9,58 @@ class VolatilityArbModule(BaseAnalysisModule):
         super().__init__("volatility_arb")
         
     def analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Análisis de squeezes usando Bandas de Bollinger"""
+        """Análisis de Squeeze Radar usando Bollinger Bandwidth"""
         try:
             market_data = data.get('market_data')
             
             if market_data is None or not isinstance(market_data, pd.DataFrame):
                 return self.format_result("neutral", 0.0, "Datos insuficientes: No hay DataFrame")
             
-            if len(market_data) < 100:
-                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (se necesitan 100)")
+            # Necesitamos al menos 30 velas para BB(20) y confirmar tendencias previas
+            if len(market_data) < 30:
+                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (Min 30)")
             
             from ta.volatility import BollingerBands
 
-            # Calcular Bandas de Bollinger
+            # Calcular Bandas de Bollinger (20, 2)
             bb_indicator = BollingerBands(close=market_data['close'], window=20, window_dev=2)
             
-            # Calcular ancho de las bandas
             upper_band = bb_indicator.bollinger_hband()
             lower_band = bb_indicator.bollinger_lband()
+            middle_band = bb_indicator.bollinger_mavg()
             
-            if upper_band is None or lower_band is None:
-                return self.format_result("neutral", 0.0, "Error obteniendo bandas de Bollinger")
+            if upper_band.iloc[-1] is None or lower_band.iloc[-1] is None or middle_band.iloc[-1] is None:
+                 return self.format_result("neutral", 0.0, "Error datos insuficientes para Bandas de Bollinger")
+
+            # Calcular Bandwidth (Ancho de Banda Normalizado)
+            # Formula: (Upper - Lower) / Middle
+            # Evitar división por cero
+            bandwidth = (upper_band - lower_band) / middle_band.replace(0, np.nan)
             
-            # Calcular ancho de banda (diferencia entre superior e inferior)
-            band_width = upper_band - lower_band
+            # Obtener el ancho de banda actual
+            current_bw = bandwidth.iloc[-1]
             
-            # Verificar si el ancho actual es el mínimo de los últimos 100 periodos
-            current_width = band_width.iloc[-1]
-            min_width_last_100 = band_width.tail(100).min()
+            # Determinar el mínimo de los últimos 20 periodos (incluyendo actual)
+            # Usamos tail(20)
+            min_bw_last_20 = bandwidth.tail(20).min()
             
-            # Tolerancia del 1% para considerar "mínimo"
-            tolerance = min_width_last_100 * 0.01
+            # Margen de tolerancia para considerar "cerca del mínimo" (5%)
+            margin = min_bw_last_20 * 0.05
             
-            if current_width <= (min_width_last_100 + tolerance):
-                recommendation = "neutral"
-                confidence = 0.85
-                justification = f"Squeeze Detectado - Explosión inminente. Ancho de banda ({current_width:.2f}) es mínimo en 100 periodos"
-            else:
-                recommendation = "neutral"
-                confidence = 0.3
-                justification = f"Sin squeeze detectado. Ancho de banda normal ({current_width:.2f})"
+            signal = "neutral"
+            confidence = 0.0
+            justification = f"Volatilidad normal. Bandwidth: {current_bw:.4f}"
             
-            return self.format_result(recommendation, confidence, justification)
+            # Condición de Squeeze
+            if current_bw <= (min_bw_last_20 + margin):
+                signal = "neutral" # Dirección desconocida
+                confidence = 0.8   # Alta probabilidad de explosión
+                justification = "⚠️ ALERTA DE SQUEEZE: Alta tensión detectada. Explosión de volatilidad inminente."
+                
+            return self.format_result(signal, confidence, justification)
+            
+        except Exception as e:
+            return self.format_result("neutral", 0.0, f"Error en análisis Volatility Arbritrage: {str(e)}")
             
         except Exception as e:
             return self.format_result("neutral", 0.0, f"Error en análisis: {str(e)}")
