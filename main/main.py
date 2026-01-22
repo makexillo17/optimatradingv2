@@ -11,7 +11,7 @@ from dispatcher.dispatcher import ModuleDispatcher
 from main.consensus import ConsensusAnalyzer
 from utils.logger import setup_logger
 from modulos.gap_sniper import GapSniperModule
-import yfinance as yf
+import ccxt
 
 import os
 
@@ -266,61 +266,69 @@ def analyze(asset_symbol: str):
         }
 
 
+
 @app.get("/test-sniper")
 def test_sniper():
     """
-    Endpoint temporal para validar la estrategia Gap Sniper con datos históricos de Yahoo Finance.
+    Endpoint temporal para validar la estrategia Gap Sniper con datos históricos de Kraken (via CCXT).
     """
     try:
-        # 1. Descargar datos de 'BTC-USD', último 1 mes, intervalo '1h'
-        #    Aumentamos el periodo para tener suficientes velas
-        df = yf.download('BTC-USD', period='1mo', interval='1h', progress=False)
+        # 1. Conectar a Kraken (público)
+        exchange = ccxt.kraken()
+        symbol = 'BTC/USD'
+        timeframe = '1h'
+        limit = 500
         
-        if df.empty:
-            return {"error": "No se pudieron descargar datos de yfinance"}
+        # 2. Descargar datos OHLCV
+        # Estructura: [timestamp, open, high, low, close, volume]
+        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        
+        if not ohlcv:
+            return {"error": "No se pudieron descargar datos de Kraken"}
 
-        # Limpiar y formatear columnas
-        df.columns = [c.lower() for c in df.columns] 
-        # yfinance a veces devuelve MultiIndex si bajamos varios tickers, con 1 es simple pero checkeamos
-        # Ademas suele traer 'adj close' que no usamos.
+        # 3. Convertir a DataFrame
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # 2. Instanciar GapSniperModule
-        sniper = GapSniperModule()
-        
+        # Convertir timestamp a datetime para que sea legible (opcional, pero ayuda en debug)
+        df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+        # Seteamos el índice o lo dejamos, GapSniper usa .iloc así que el índice no es crítico 
+        # pero es bueno tenerlo
+        df.set_index('datetime', inplace=True)
+
         results = []
         
-        # 3. Iterar sobre las velas históricas
-        # Necesitamos una ventana mínima de 5 velas para que el módulo funcione
+        # 4. Instanciar GapSniperModule
+        sniper = GapSniperModule()
+        
+        # 5. Iterar sobre las velas históricas
+        # Necesitamos una ventana mínima de 5 velas
         window_size = 6 
         
         for i in range(window_size, len(df)):
-            # Tomamos el slice [i-window_size : i] para simular "datos vivos" hasta ese momento
-            # El slice upper bound es exclusivo, pero queremos incluir la fila i
-            # Actually, `iloc[0:5]` returns 5 rows (index 0,1,2,3,4). 
-            # So `iloc[i-window_size : i+1]` would give window_size+1 rows.
-            # Lets treat 'i' as the index of the "current candle".
-            
+            # Slice simulation
             slice_data = df.iloc[i-window_size : i+1].copy()
             
-            # Pasar al formato esperado por el módulo
-            # El módulo espera un dict con 'market_data' que sea el DataFrame
             data_packet = {'market_data': slice_data}
             
+            # Ejecutar análisis
             analysis = sniper.analyze(data_packet)
             
             if analysis['recommendation'] != 'neutral':
-                # Guardar el hallazgo
-                # La fecha sería el índice de la última vela del slice
-                timestamp = slice_data.index[-1]
+                # Guardar hallazgo
+                # La fecha es el índice
+                timestamp_str = str(slice_data.index[-1])
                 
                 results.append({
-                    "timestamp": str(timestamp),
+                    "timestamp": timestamp_str,
+                    # El precio de cierre de la 'vela actual' del análisis (la última del slice)
                     "price": float(slice_data['close'].iloc[-1]),
                     "type": analysis['recommendation'], # long/short
                     "justification": analysis['justification']
                 })
         
         return {
+            "source": "Kraken",
+            "symbol": symbol,
             "total_candles_analyzed": len(df),
             "gaps_detected_count": len(results),
             "gaps": results
