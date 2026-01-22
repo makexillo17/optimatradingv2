@@ -10,6 +10,8 @@ from loader.loader import MarketDataLoader as DataLoader
 from dispatcher.dispatcher import ModuleDispatcher
 from main.consensus import ConsensusAnalyzer
 from utils.logger import setup_logger
+from modulos.gap_sniper import GapSniperModule
+import yfinance as yf
 
 import os
 
@@ -263,6 +265,69 @@ def analyze(asset_symbol: str):
             "error": f"ERROR REAL: {str(e)}"
         }
 
+
+@app.get("/test-sniper")
+def test_sniper():
+    """
+    Endpoint temporal para validar la estrategia Gap Sniper con datos históricos de Yahoo Finance.
+    """
+    try:
+        # 1. Descargar datos de 'BTC-USD', último 1 mes, intervalo '1h'
+        #    Aumentamos el periodo para tener suficientes velas
+        df = yf.download('BTC-USD', period='1mo', interval='1h', progress=False)
+        
+        if df.empty:
+            return {"error": "No se pudieron descargar datos de yfinance"}
+
+        # Limpiar y formatear columnas
+        df.columns = [c.lower() for c in df.columns] 
+        # yfinance a veces devuelve MultiIndex si bajamos varios tickers, con 1 es simple pero checkeamos
+        # Ademas suele traer 'adj close' que no usamos.
+        
+        # 2. Instanciar GapSniperModule
+        sniper = GapSniperModule()
+        
+        results = []
+        
+        # 3. Iterar sobre las velas históricas
+        # Necesitamos una ventana mínima de 5 velas para que el módulo funcione
+        window_size = 6 
+        
+        for i in range(window_size, len(df)):
+            # Tomamos el slice [i-window_size : i] para simular "datos vivos" hasta ese momento
+            # El slice upper bound es exclusivo, pero queremos incluir la fila i
+            # Actually, `iloc[0:5]` returns 5 rows (index 0,1,2,3,4). 
+            # So `iloc[i-window_size : i+1]` would give window_size+1 rows.
+            # Lets treat 'i' as the index of the "current candle".
+            
+            slice_data = df.iloc[i-window_size : i+1].copy()
+            
+            # Pasar al formato esperado por el módulo
+            # El módulo espera un dict con 'market_data' que sea el DataFrame
+            data_packet = {'market_data': slice_data}
+            
+            analysis = sniper.analyze(data_packet)
+            
+            if analysis['recommendation'] != 'neutral':
+                # Guardar el hallazgo
+                # La fecha sería el índice de la última vela del slice
+                timestamp = slice_data.index[-1]
+                
+                results.append({
+                    "timestamp": str(timestamp),
+                    "price": float(slice_data['close'].iloc[-1]),
+                    "type": analysis['recommendation'], # long/short
+                    "justification": analysis['justification']
+                })
+        
+        return {
+            "total_candles_analyzed": len(df),
+            "gaps_detected_count": len(results),
+            "gaps": results
+        }
+        
+    except Exception as e:
+        return {"error": str(e), "traceback": traceback.format_exc()}
 
 if __name__ == "__main__":
     import uvicorn
