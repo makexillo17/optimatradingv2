@@ -15,47 +15,53 @@ class SmcIctModule(BaseAnalysisModule):
         ]
         
     def analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analiza el mercado usando conceptos SMC/ICT con RSI"""
+        """Analiza la Tendencia Macro usando EMA 50 y EMA 200"""
         try:
             # Obtener el DataFrame de market_data
             market_data = data.get('market_data')
             
             if market_data is None or not isinstance(market_data, pd.DataFrame):
-                print(f"DEBUG SMC: No se recibió DataFrame válido. Tipo: {type(market_data)}")
                 return self.format_result("neutral", 0.0, "Datos insuficientes: No hay DataFrame")
             
-            if len(market_data) < 14:
-                print(f"DEBUG SMC: Solo se recibieron {len(market_data)} velas, se necesitan al menos 14 para RSI")
-                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
+            # Necesitamos al menos 200 velas para la EMA 200
+            if len(market_data) < 200:
+                # print(f"DEBUG SMC: Solo se recibieron {len(market_data)} velas, se necesitan al menos 200 para EMA")
+                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (Min 200)")
             
-            print(f"DEBUG SMC: Recibí {len(market_data)} velas. Columnas: {list(market_data.columns)}")
+            from ta.trend import EMAIndicator
             
-            # Calcular RSI de 14 periodos
-            rsi_value = self._calculate_rsi(market_data, period=14)
+            # Calcular EMA 50
+            ema50_indicator = EMAIndicator(close=market_data['close'], window=50)
+            ema50 = ema50_indicator.ema_indicator().iloc[-1]
             
-            print(f"DEBUG SMC: RSI actual: {rsi_value:.2f}")
+            # Calcular EMA 200
+            ema200_indicator = EMAIndicator(close=market_data['close'], window=200)
+            ema200 = ema200_indicator.ema_indicator().iloc[-1]
             
-            # Lógica de Trading basada en RSI
-            if rsi_value < 30:
-                recommendation = "long"  # BUY en términos de trading
+            current_price = market_data['close'].iloc[-1]
+            
+            signal = "neutral"
+            confidence = 0.0
+            justification = f"Estructura neutral/rango. Precio: {current_price:.2f}, EMA50: {ema50:.2f}, EMA200: {ema200:.2f}"
+            
+            # --- LÓGICA DE TENDENCIA MACRO ---
+            
+            # Estructura Alcista: Precio > EMA50 > EMA200
+            if current_price > ema50 and ema50 > ema200:
+                signal = "long"
                 confidence = 0.8
-                justification = f"RSI en sobreventa ({rsi_value:.2f}) - Oportunidad SMC"
-            elif rsi_value > 70:
-                recommendation = "short"  # SELL en términos de trading
-                confidence = 0.8
-                justification = f"RSI en sobrecompra ({rsi_value:.2f}) - Oportunidad SMC"
-            else:
-                recommendation = "neutral"  # HOLD
-                confidence = 0.5
-                justification = f"RSI neutral ({rsi_value:.2f}) - Sin señal clara"
+                justification = f"Estructura Alcista confirmada (Precio > 50 > 200). Precio: {current_price:.2f}, EMA50: {ema50:.2f}, EMA200: {ema200:.2f}"
             
-            return self.format_result(recommendation, confidence, justification)
+            # Estructura Bajista: Precio < EMA50 < EMA200
+            elif current_price < ema50 and ema50 < ema200:
+                signal = "short"
+                confidence = 0.8
+                justification = f"Estructura Bajista confirmada (Precio < 50 < 200). Precio: {current_price:.2f}, EMA50: {ema50:.2f}, EMA200: {ema200:.2f}"
+            
+            return self.format_result(signal, confidence, justification)
             
         except Exception as e:
-            print(f"DEBUG SMC: Error en análisis: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
-            return self.format_result("neutral", 0.0, f"Error en análisis SMC: {str(e)}")
+            return self.format_result("neutral", 0.0, f"Error en análisis Macro Trend: {str(e)}")
     
     def _calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> float:
         """

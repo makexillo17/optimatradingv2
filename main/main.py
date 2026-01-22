@@ -325,9 +325,8 @@ def test_sniper():
         sniper = GapSniperModule()
         
         # 5. Iterar sobre las velas históricas
-        # Necesitamos una ventana mínima mayor para ATR(14) y VolMA(20)
-        # Usaremos 30 para tener margen
-        window_size = 30 
+        # Necesitamos una ventana mínima mayor para ATR(14), VolMA(20) y ahora EMA(200) para SMC
+        window_size = 205 
         
         for i in range(window_size, len(df)):
             # Slice simulation
