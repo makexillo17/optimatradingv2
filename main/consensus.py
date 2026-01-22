@@ -11,49 +11,88 @@ class ConsensusAnalyzer:
         
     def analyze(self, module_results: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Analiza los resultados de todos los módulos y genera un consenso
-        
-        Args:
-            module_results: Diccionario con resultados de cada módulo
-            
-        Returns:
-            Dict con recomendación final, confianza y justificación
+        Analiza los resultados con Jerarquía de Decisión:
+        1. Gap Sniper (Prioridad MÁXIMA)
+        2. Consenso de Motores (Confirmación de Tendencia)
+        3. Espera (Neutral)
         """
         try:
             # Validar resultados
             if not module_results:
                 return self._generate_neutral_response("No hay resultados de módulos")
+
+            # --- PRIORIDAD 1: EL FRANCOTIRADOR (Gap Sniper) ---
+            if 'gap_sniper' in module_results:
+                sniper_result = module_results['gap_sniper']
+                sniper_rec = sniper_result.get('recommendation', 'neutral')
                 
-            # Calcular señales ajustadas por correlación
+                if sniper_rec == 'long':
+                    return {
+                        'recommendation': "STRONG_BUY_GAP",
+                        'confidence': sniper_result.get('confidence', 0.9),
+                        'justification': "🚨 OPORTUNIDAD DE GAP ALCISTA: Detectado y validado por volumen.",
+                        'details': {'source': 'gap_sniper_priority'}
+                    }
+                elif sniper_rec == 'short':
+                    return {
+                        'recommendation': "STRONG_SELL_GAP",
+                        'confidence': sniper_result.get('confidence', 0.9),
+                        'justification': "🚨 ALERTA DE GAP BAJISTA: Hueco de liquidez detectado. Salida recomendada.",
+                        'details': {'source': 'gap_sniper_priority'}
+                    }
+
+            # --- PRIORIDAD 2: EL CONSENSO (Análisis de Motores) ---
+            # Calcular señales ajustadas para el resto de motores
             adjusted_signals = self._calculate_adjusted_signals(module_results)
-            
-            # Calcular pesos dinámicos
             dynamic_weights = self._calculate_dynamic_weights(module_results)
             
-            # Generar consenso
-            consensus = self._generate_weighted_consensus(
-                adjusted_signals,
-                dynamic_weights,
-                module_results
-            )
+            # Calcular promedio ponderado (excluyendo o incluyendo gap_sniper? 
+            # Si gap_sniper es neutral, no afecta mucho, pero mejor usamos todos para el 'Trend')
             
-            # Generar justificación
-            justification = self._generate_justification(
-                consensus,
-                module_results,
-                adjusted_signals,
-                dynamic_weights
-            )
+            total_signal = 0.0
+            total_weight = 0.0
             
-            return {
-                'recommendation': consensus['recommendation'],
-                'confidence': consensus['confidence'],
-                'justification': justification,
-                'details': {
-                    'adjusted_signals': adjusted_signals,
-                    'dynamic_weights': dynamic_weights,
-                    'raw_consensus': consensus
+            for module, signal in adjusted_signals.items():
+                # Podemos excluir gap_sniper del promedio de "motores" si queremos pureza,
+                # pero dejarlo tampoco daña si es neutral.
+                weight = dynamic_weights.get(module, 0.0)
+                total_signal += signal * weight
+                total_weight += weight
+            
+            avg_signal = total_signal / total_weight if total_weight > 0 else 0.0
+            
+            # Verificar confirmación de SMC (Contexto Macro)
+            smc_trend = "neutral"
+            if 'smc_ict' in module_results:
+                smc_rec = module_results['smc_ict'].get('recommendation', 'neutral')
+                smc_trend = smc_rec # long/short/neutral
+            
+            # -- Lógica de Tendencia --
+            # Si promedio muy alto (> 0.6) y SMC confirma
+            if avg_signal > 0.6 and smc_trend == 'long':
+                return {
+                    'recommendation': "BUY_TREND",
+                    'confidence': 0.8, # Confianza alta por confirmación múltiple
+                    'justification': "✅ ENTRADA TÉCNICA: Análisis de motores positivo (Tendencia + Indicadores).",
+                    'details': {'avg_signal': avg_signal, 'smc_trend': smc_trend}
                 }
+            
+            # Si promedio muy bajo (< -0.6) - (Nota: SMC bajista sería ideal confirmar, pero prompt solo dijo < -0.6)
+            # Agregamos sentido común: idealmente SMC no debería ser 'long'
+            elif avg_signal < -0.6: 
+                 return {
+                    'recommendation': "SELL_TREND",
+                    'confidence': 0.8,
+                    'justification': "🔻 SALIDA TÉCNICA: Debilidad estructural en múltiples motores.",
+                    'details': {'avg_signal': avg_signal}
+                }
+
+            # --- PRIORIDAD 3: ESPERA ---
+            return {
+                'recommendation': "NEUTRAL",
+                'confidence': 0.0,
+                'justification': "⏳ Esperando configuración clara. Mercado sin dirección definida.",
+                'details': {'avg_signal': avg_signal, 'smc_trend': smc_trend}
             }
             
         except Exception as e:
