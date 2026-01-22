@@ -12,7 +12,7 @@ from dispatcher.dispatcher import ModuleDispatcher
 from main.consensus import ConsensusAnalyzer
 from utils.logger import setup_logger
 from modulos.gap_sniper import GapSniperModule
-from modulos.database import init_db, save_signal     #  <-- Importar persistencia
+from modulos.database import init_db, save_signal, get_recent_signals     #  <-- Importar persistencia y query
 import ccxt
 
 import os
@@ -281,6 +281,15 @@ def analyze(asset_symbol: str):
         }
 
 
+
+@app.get("/history")
+def history():
+    """Devuelve las últimas 5 señales guardadas en la DB."""
+    try:
+        signals = get_recent_signals(limit=5)
+        return {"count": len(signals), "history": signals}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.get("/test-sniper")
 def test_sniper():
