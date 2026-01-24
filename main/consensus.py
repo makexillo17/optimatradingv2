@@ -9,17 +9,22 @@ class ConsensusAnalyzer:
         self.module_weights = self._initialize_weights()
         self.correlation_matrix = self._initialize_correlations()
         
-    def analyze(self, module_results: Dict[str, Any]) -> Dict[str, Any]:
+    def analyze(self, module_results: Dict[str, Any], market_regime: str = None) -> Dict[str, Any]:
         """
         Analiza los resultados con Jerarquía de Decisión:
         1. Gap Sniper (Prioridad MÁXIMA)
         2. Consenso de Motores (Confirmación de Tendencia)
         3. Espera (Neutral)
+        4. Filtro de Régimen de Mercado (Noise/Trending/Ranging)
         """
         try:
             # Validar resultados
             if not module_results:
                 return self._generate_neutral_response("No hay resultados de módulos")
+                
+            # --- FILTRO DE NOISE (Pánico) ---
+            if market_regime == 'NOISE':
+                return self._generate_neutral_response("Régimen de Mercado: NOISE (Alto Riesgo/Chop). Operativa detenida.")
 
             # --- PRIORIDAD 1: EL FRANCOTIRADOR (Gap Sniper) ---
             if 'gap_sniper' in module_results:
@@ -44,7 +49,7 @@ class ConsensusAnalyzer:
             # --- PRIORIDAD 2: EL CONSENSO (Análisis de Motores) ---
             # Calcular señales ajustadas para el resto de motores
             adjusted_signals = self._calculate_adjusted_signals(module_results)
-            dynamic_weights = self._calculate_dynamic_weights(module_results)
+            dynamic_weights = self._calculate_dynamic_weights(module_results, market_regime)
             
             # Calcular promedio ponderado (excluyendo o incluyendo gap_sniper? 
             # Si gap_sniper es neutral, no afecta mucho, pero mejor usamos todos para el 'Trend')
@@ -167,13 +172,35 @@ class ConsensusAnalyzer:
         
     def _calculate_dynamic_weights(
         self,
-        module_results: Dict[str, Any]
+        module_results: Dict[str, Any],
+        market_regime: str = None
     ) -> Dict[str, float]:
-        """Calcula pesos dinámicos basados en confianza y rendimiento"""
+        """Calcula pesos dinámicos basados en confianza y régimen de mercado"""
         dynamic_weights = {}
+        
+        # Multiplicadores por Régimen
+        regime_multipliers = {}
+        if market_regime == 'TRENDING':
+            regime_multipliers = {
+                'smc_ict': 2.0,
+                'carry_trade': 2.0,
+                'market_making': 0.0
+            }
+        elif market_regime == 'RANGING':
+            regime_multipliers = {
+                'market_making': 2.5,
+                'liquidity_provision': 2.0,
+                'carry_trade': 0.0,
+                'smc_ict': 0.5
+            }
         
         for module, result in module_results.items():
             base_weight = self.module_weights.get(module, 1.0)
+            
+            # Aplicar multiplicador de régimen
+            multiplier = regime_multipliers.get(module, 1.0)
+            base_weight *= multiplier
+            
             confidence = result.get('confidence', 0.0)
             
             # Ajustar peso por confianza

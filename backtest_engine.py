@@ -18,6 +18,7 @@ from modulos.volatility_arb import VolatilityArbModule
 from modulos.stat_arb import StatArbModule
 from modulos.liquidity_provision import LiquidityProvisionModule
 from modulos.market_making import MarketMakingModule
+from modulos.market_regime import detect_regime
 
 from main.consensus import ConsensusAnalyzer
 
@@ -94,7 +95,10 @@ class BacktestEngine:
                     pass
             
             # 2. Consensus
-            consensus_result = self.consensus.analyze(module_results)
+            # Calculate Market Regime
+            current_regime = detect_regime(current_df)
+            
+            consensus_result = self.consensus.analyze(module_results, market_regime=current_regime)
             consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
             recommendation = consensus_result.get('recommendation', 'NEUTRAL')
             
@@ -105,9 +109,9 @@ class BacktestEngine:
             
             # --- VERBOSE DEBUG ---
             if self.verbose and i % 24 == 0:
-                 if abs(consensus_signal) > 0.3:
+                 if abs(consensus_signal) > 0.3 or current_regime == 'NOISE':
                     trend_status = "BULL" if current_price > current_ema200 else "BEAR"
-                    print(f"[{current_time}] Score: {consensus_signal:.2f} | Trend: {trend_status} | SMC: {module_results.get('smc_ict', {}).get('recommendation')} | CD: {self.cooldown}")
+                    print(f"[{current_time}] Regime: {current_regime} | Score: {consensus_signal:.2f} | Trend: {trend_status} | SMC: {module_results.get('smc_ict', {}).get('recommendation')}")
 
             # 3. Risk Params
             hedging_info = module_results.get('dynamic_hedging', {})
