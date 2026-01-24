@@ -62,13 +62,26 @@ class BacktestEngine:
         
         print("Starting Simulation...")
         
+        # PRE-CALCULATE EMA 200 FOR TREND FILTER
+        # Using pandas ewm or rolling. standard is EMA.
+        # df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
+        # Or using ta library if preferred, but pandas is faster/easier here without extra imports if not needed.
+        # Let's use simple pandas calculation for speed.
+        df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
+        
         start_idx = 205
+        self.cooldown = 0 # Cooldown counter in candles
         
         for i in range(start_idx, len(df)):
+            # Update cooldown
+            if self.cooldown > 0:
+                self.cooldown -= 1
+                
             current_df = df.iloc[:i+1].copy()
             current_candle = current_df.iloc[-1]
             current_price = current_candle['close']
             current_time = current_candle['timestamp']
+            current_ema200 = current_candle['ema200']
             
             # 1. Run Analysis
             module_results = {}
@@ -85,16 +98,16 @@ class BacktestEngine:
             consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
             recommendation = consensus_result.get('recommendation', 'NEUTRAL')
             
-            # Use 'signal' key if available directly (some versions of consensus return it)
-            # If not, try to map recommendation to signal for consistency
+            # Use 'signal' key if available directly
             if 'signal' not in consensus_result:
                 if recommendation == 'long': consensus_signal = 0.8
                 elif recommendation == 'short': consensus_signal = -0.8
             
             # --- VERBOSE DEBUG ---
-            if self.verbose and i % 24 == 0: # Print once a day roughly or interesting ones
-                 if abs(consensus_signal) > 0.25:
-                    print(f"[{current_time}] Score: {consensus_signal:.2f} | Rec: {recommendation}")
+            if self.verbose and i % 24 == 0:
+                 if abs(consensus_signal) > 0.3:
+                    trend_status = "BULL" if current_price > current_ema200 else "BEAR"
+                    print(f"[{current_time}] Score: {consensus_signal:.2f} | Trend: {trend_status} | SMC: {module_results.get('smc_ict', {}).get('recommendation')} | CD: {self.cooldown}")
 
             # 3. Risk Params
             hedging_info = module_results.get('dynamic_hedging', {})
@@ -106,7 +119,8 @@ class BacktestEngine:
                 current_price, current_time, 
                 consensus_signal, recommendation, 
                 stop_long, stop_short, 
-                module_results
+                module_results,
+                current_ema200
             )
             
             # 5. Track Equity
@@ -114,12 +128,9 @@ class BacktestEngine:
             
             if self.position:
                 if self.position['type'] == 'long':
-                    # Equity = Cash + Asset Value
                     asset_value = self.position['size'] * current_price
                     current_equity = self.balance + asset_value
                 elif self.position['type'] == 'short':
-                    # Equity = Cash + Unrealized PnL (Entry - Current) * Size
-                    # Note: We did NOT subtract full value from balance on entry for shorts
                     unrealized_pnl = (self.position['entry_price'] - current_price) * self.position['size']
                     current_equity = self.balance + unrealized_pnl
             
@@ -134,7 +145,7 @@ class BacktestEngine:
 
         self._generate_report()
 
-    def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results):
+    def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results, ema200):
         
         # Check Exits
         if self.position:
@@ -153,69 +164,72 @@ class BacktestEngine:
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
             if self.position['type'] == 'long':
-                # Exit Long if signal flips short
-                if consensus_signal < -0.25 or (divergence and div_rec == 'short'):
+                if consensus_signal < -0.30 or (divergence and div_rec == 'short'):
                     self._close_position(price, timestamp, "Take Profit/Reversal")
                     return
             elif self.position['type'] == 'short':
-                # Exit Short if signal flips long
-                if consensus_signal > 0.25 or (divergence and div_rec == 'long'):
+                if consensus_signal > 0.30 or (divergence and div_rec == 'long'):
                     self._close_position(price, timestamp, "Take Profit/Reversal")
                     return
 
         # Check Entries
-        if not self.position:
+        # COOLDOWN CHECK and Trend Filter
+        if not self.position and self.cooldown == 0:
+            
             # LONG ENTRY
-            if consensus_signal > 0.25:
-                # Max Risk 1% of Equity? Or Full size?
-                # User prompt implied full size earlier, let's stick to simple "All In" model with buffer
-                
-                # Equity estimate
-                equity = self.balance # No position, so equity = balance
-                
-                # Size calculation (99% of capital)
-                size_asset = (equity * 0.99) / price
-                cost = size_asset * price
-                fee = cost * self.commission_rate
-                
-                if (cost + fee) > self.balance:
-                    size_asset = (self.balance - fee) / price
-                
-                # DEDUCT CASH for Long
-                self.balance -= (size_asset * price + fee)
-                
-                self.position = {
-                    'type': 'long',
-                    'entry_price': price,
-                    'size': size_asset,
-                    'stop_loss': stop_long,
-                    'entry_time': timestamp
-                }
-                print(f"[{timestamp}] BUY LONG @ {price:.2f} (Signal: {consensus_signal:.2f})")
-                
+            # Signal > 0.30 AND Price > EMA 200
+            if consensus_signal > 0.30:
+                if price > ema200:
+                    capital = self.balance
+                    size_asset = (capital * 0.99) / price # Use available cash
+                    
+                    cost = size_asset * price
+                    fee = cost * self.commission_rate
+                    
+                    if (cost + fee) > self.balance:
+                        size_asset = (self.balance - fee) / price
+                    
+                    self.balance -= (size_asset * price + fee)
+                    
+                    self.position = {
+                        'type': 'long',
+                        'entry_price': price,
+                        'size': size_asset,
+                        'stop_loss': stop_long,
+                        'entry_time': timestamp
+                    }
+                    print(f"[{timestamp}] BUY LONG @ {price:.2f} (Score: {consensus_signal:.2f} > 0.3 | > EMA200)")
+                else:
+                    if self.verbose and consensus_signal > 0.4:
+                        print(f"[{timestamp}] FILTERED LONG: Price ({price:.2f}) < EMA200 ({ema200:.2f})")
+
             # SHORT ENTRY
-            elif consensus_signal < -0.25:
-                # SHORT LOGIC (CFD/Margin Style)
-                # We DO NOT deduct full cost from balance. We only deduct fee.
-                # We use balance as collateral.
-                
-                equity = self.balance
-                size_asset = (equity * 0.99) / price # Leverage 1:1 roughly
-                
-                # Initial Fee
-                notional_value = size_asset * price
-                fee = notional_value * self.commission_rate
-                
-                self.balance -= fee 
-                
-                self.position = {
-                    'type': 'short',
-                    'entry_price': price,
-                    'size': size_asset,
-                    'stop_loss': stop_short,
-                    'entry_time': timestamp
-                }
-                print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Signal: {consensus_signal:.2f})")
+            # Signal < -0.30 AND Price < EMA 200
+            elif consensus_signal < -0.30:
+                if price < ema200:
+                    equity = self.balance
+                    size_asset = (equity * 0.99) / price
+                    
+                    notional_value = size_asset * price
+                    fee = notional_value * self.commission_rate
+                    
+                    if fee > self.balance:
+                         # Not enough for fee
+                         return
+                    
+                    self.balance -= fee 
+                    
+                    self.position = {
+                        'type': 'short',
+                        'entry_price': price,
+                        'size': size_asset,
+                        'stop_loss': stop_short,
+                        'entry_time': timestamp
+                    }
+                    print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Score: {consensus_signal:.2f} < -0.3 | < EMA200)")
+                else:
+                    if self.verbose and consensus_signal < -0.4:
+                         print(f"[{timestamp}] FILTERED SHORT: Price ({price:.2f}) > EMA200 ({ema200:.2f})")
 
     def _close_position(self, price, timestamp, reason):
         if not self.position: return
@@ -310,17 +324,23 @@ class BacktestEngine:
             equity_series['dd'] = (equity_series['peak'] - equity_series['equity']) / equity_series['peak']
             max_dd = equity_series['dd'].max() * 100
             
-        print(f"Final Balance:  ${self.balance:,.2f}")
-        print(f"Total Return:   {percent_return:.2f}%")
-        print(f"Win Rate:       {win_rate:.2f}%")
-        print(f"Profit Factor:  {profit_factor:.2f}")
-        print(f"Max Drawdown:   {max_dd:.2f}%")
-        print(f"Total Trades:   {len(self.trades)}")
+        report_str = f"""
+--- PERFORMANCE REPORT ---
+Final Balance:  ${self.balance:,.2f}
+Total Return:   {percent_return:.2f}%
+Win Rate:       {win_rate:.2f}%
+Profit Factor:  {profit_factor:.2f}
+Max Drawdown:   {max_dd:.2f}%
+Total Trades:   {len(self.trades)}
+"""
+        print(report_str)
+        with open('backtest_report.txt', 'w') as f:
+            f.write(report_str)
         
         if not equity_series.empty:
             plt.figure(figsize=(10,6))
             plt.plot(equity_series['timestamp'], equity_series['equity'])
-            plt.title(f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f} | Trades {len(self.trades)}")
+            plt.title(f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f}")
             plt.xlabel("Date")
             plt.ylabel("Capital ($)")
             plt.grid(True)
