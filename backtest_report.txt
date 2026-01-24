@@ -1,8 +1,8 @@
 
 --- PERFORMANCE REPORT ---
-Final Balance:  $10,036.02
-Total Return:   0.36%
-Win Rate:       33.33%
-Profit Factor:  1.05
-Max Drawdown:   3.26%
-Total Trades:   24
+Final Balance:  $9,864.53
+Total Return:   -1.35%
+Win Rate:       31.03%
+Profit Factor:  0.87
+Max Drawdown:   5.28%
+Total Trades:   29
