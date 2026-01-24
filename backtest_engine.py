@@ -148,16 +148,22 @@ class BacktestEngine:
 
         # Check Entries
         if not self.position:
-            # ENTRY: Consensus > 0.6 (Threshold defined in Consensus for BUY_TREND)
-            # Prompt asks for > 0.5 entry
-            if consensus_signal > 0.5:
+            # ENTRY: Consensus > 0.25 (Relaxed from 0.5) OR Score < -0.25 (Short)
+            
+            # LONG ENTRY
+            if consensus_signal > 0.25:
+                # Calculate size
                 capital = self.balance
                 size_asset = (capital * 0.99) / price
-                
-                # Apply fee from balance
                 cost = size_asset * price
                 fee = cost * self.commission_rate
-                self.balance -= fee 
+                
+                # Check affordable
+                total_cost = cost + fee
+                if total_cost > self.balance:
+                    size_asset = (self.balance - fee) / price
+                
+                self.balance -= (size_asset * price + fee)
                 
                 self.position = {
                     'type': 'long',
@@ -167,58 +173,97 @@ class BacktestEngine:
                     'entry_time': timestamp
                 }
                 print(f"[{timestamp}] BUY LONG @ {price:.2f} (Signal: {consensus_signal:.2f})")
+                
+            # SHORT ENTRY
+            elif consensus_signal < -0.25:
+                # Simplified Short: We sell asset we don't have (Borrow).
+                # Cash (Balance) increases by Price * Size. Debt (Position) is Size.
+                # Here we model "Inverse Long" PnL for simplicity or proper Short?
+                # Proper Short:
+                # Initial Margin = Balance. We sell size worth roughly margin (1x leverage).
+                # Cash += Size * Price.
+                # Exit: We Buy back. Cash -= Size * Price.
+                # Profit = EntryPrice - ExitPrice.
+                
+                capital = self.balance
+                size_asset = (capital * 0.99) / price
+                revenue = size_asset * price
+                fee = revenue * self.commission_rate
+                
+                # We need margin to open.
+                # If balance is 10k, we sell 10k worth.
+                # Cash becomes 20k? (10k collateral + 10k proceeds).
+                # Let's keep simpler logic: Position tracks entry. PnL calculated at exit.
+                # Balance stays separate or acts as collateral.
+                # For CONSISTENCY with Long logic above (Balance -= cost):
+                # Let's say we put up COLLATERAL equal to trade value.
+                # cost = size * price.
+                # balance -= cost + fee. (Collateral locked).
+                # Exit: Return collateral +/- pnl.
+                
+                cost = size_asset * price
+                fee = cost * self.commission_rate
+                
+                if (cost + fee) > self.balance:
+                     size_asset = (self.balance - fee) / price
+                
+                self.balance -= (size_asset * price + fee) # Lock collateral
+                
+                self.position = {
+                    'type': 'short',
+                    'entry_price': price,
+                    'size': size_asset,
+                    'stop_loss': stop_short,
+                    'entry_time': timestamp
+                }
+                print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Signal: {consensus_signal:.2f})")
 
     def _close_position(self, price, timestamp, reason):
         if not self.position: return
         
-        revenue = self.position['size'] * price
-        fee = revenue * self.commission_rate
-        net_revenue = revenue - fee
+        # Calculate PnL based on type
+        entry_price = self.position['entry_price']
+        size = self.position['size']
         
-        # Simplified Cash update
-        # We need to add the difference back? 
-        # Wait, if we did self.balance -= fee at start, balance holds the 'Principle' essentially?
-        # No, balance should track Cash.
-        # Entry: Buy Asset. Cash -= (Volume * Price + Fee). 
-        # Exit: Sell Asset. Cash += (Volume * Price - Fee).
-        # Fix Entry logic in code block above:
-        # self.balance -= (size_asset * price + fee)
-        # That would drain account to ~0.
-        # Let's fix Entry Block:
-        # self.balance -= (size_asset * price + fee)
-        # Close Block:
-        # self.balance += net_revenue
+        # Calculate Release of Capital
+        # We locked (Size * Entry) + EntryFee.
+        # We need to return: (Size * Entry) +/- PnL - ExitFee
         
-        # PATCH ENTRY LOGIC VIA THIS STRING UPDATE:
-        # I need to ensure the Entry code subtracts the cost.
-        # See below in _manage_positions
+        entry_val = size * entry_price
+        exit_val = size * price
         
-        cost_basis = self.position['size'] * self.position['entry_price']
+        if self.position['type'] == 'long':
+            gross_pnl = exit_val - entry_val
+        else:
+            gross_pnl = entry_val - exit_val # Short: Profit if Entry > Exit
+
+        exit_fee = exit_val * self.commission_rate
+        net_pnl = gross_pnl - exit_fee
         
-        # In this simplistic model where 'balance' acts as 'Cash':
-        self.balance += net_revenue 
+        # Return Capital (EntryVal) + NetPnL
+        # Note: We already deducted entry fee from balance.
+        # So we return: EntryVal + NetPnL
         
-        # PnL Calculation
-        # Entry cost was: size * entry_price + entry_fee
-        # Exit revenue was: size * exit_price - exit_fee
-        # Net PnL = Exit Rev - Entry Cost
-        entry_fee = cost_basis * self.commission_rate # Approx, based on size
-        total_entry_cost = cost_basis + entry_fee
+        returned_capital = entry_val + net_pnl
+        self.balance += returned_capital
         
-        net_pnl = net_revenue - total_entry_cost
+        # For Reporting (Net PnL of the full trade cycle)
+        # Cycle PnL = NetPnL - EntryFee
+        # We paid EntryFee at start.
+        entry_fee = entry_val * self.commission_rate
+        trade_pnl_net = net_pnl - entry_fee
         
-        # For reporting only. Balance is truth.
         self.trades.append({
             'entry_time': self.position['entry_time'],
             'exit_time': timestamp,
             'type': self.position['type'],
-            'entry_price': self.position['entry_price'],
+            'entry_price': entry_price,
             'exit_price': price,
-            'pnl': net_pnl,
+            'pnl': trade_pnl_net,
             'reason': reason
         })
         
-        print(f"[{timestamp}] SELL {self.position['type'].upper()} @ {price:.2f} ({reason}). PnL: ${net_pnl:.2f}")
+        print(f"[{timestamp}] CLOSE {self.position['type'].upper()} @ {price:.2f} ({reason}). PnL: ${trade_pnl_net:.2f}")
         self.position = None
 
     def _generate_report(self):
@@ -260,51 +305,5 @@ class BacktestEngine:
             print("Chart saved to equity_curve.png")
 
 if __name__ == "__main__":
-    # Correction of Entry Logic for Cash Accounting
-    # In _manage_positions:
-    # self.balance -= (size_asset * price + fee)
-    # Applying this fix in the string below
     eng = BacktestEngine()
-    
-    # Monkey-patching _manage_positions entry logic for correct cash flow
-    original_manage = eng._manage_positions
-    
-    def patched_manage(price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results):
-        # Check Exits first (same as original)
-        if eng.position:
-            if eng.position['type'] == 'long':
-                if price <= eng.position['stop_loss']:
-                    eng._close_position(price, timestamp, "Stop Loss")
-                    return
-            divergence = module_results.get('yield_anomaly', {}).get('divergence_detected', False)
-            div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
-            if eng.position['type'] == 'long':
-                if recommendation == 'short' or (divergence and div_rec == 'short'):
-                    eng._close_position(price, timestamp, "Take Profit/Reversal")
-                    return
-
-        # Check Entries
-        if not eng.position:
-             if consensus_signal > 0.5:
-                capital = eng.balance
-                size_asset = (capital * 0.99) / price
-                cost = size_asset * price
-                fee = cost * eng.commission_rate
-                total_cost = cost + fee
-                
-                if total_cost > eng.balance:
-                    size_asset = (eng.balance - fee) / price # readjust
-                
-                eng.balance -= (size_asset * price + fee) # DEDUCT CASH
-                
-                eng.position = {
-                    'type': 'long',
-                    'entry_price': price,
-                    'size': size_asset,
-                    'stop_loss': stop_long,
-                    'entry_time': timestamp
-                }
-                print(f"[{timestamp}] BUY LONG @ {price:.2f} (Signal: {consensus_signal:.2f})")
-    
-    eng._manage_positions = patched_manage
     eng.run()

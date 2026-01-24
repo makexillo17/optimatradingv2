@@ -108,7 +108,7 @@ class ConsensusAnalyzer:
             'liquidity_provision': 1.0,
             'market_making': 1.0,
             'pairs_trading': 1.0,
-            'smc_ict': 1.0,
+            'smc_ict': 2.5,
             'stat_arb': 1.0,
             'volatility_arb': 1.0,
             'yield_anomaly': 1.0
