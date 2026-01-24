@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-
 from typing import Dict, Any
 from .base_module import BaseAnalysisModule
 
@@ -9,42 +8,68 @@ class StatArbModule(BaseAnalysisModule):
         super().__init__("stat_arb")
         
     def analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Análisis de arbitraje estadístico usando Oscilador Estocástico (para un solo activo)"""
+        """
+        Análisis de Arbitraje Estadístico (Mean Reversion) usando Z-Score.
+        Detecta desviaciones extremas del precio respecto a su media (Distribución Normal).
+        """
         try:
             market_data = data.get('market_data')
             
             if market_data is None or not isinstance(market_data, pd.DataFrame):
                 return self.format_result("neutral", 0.0, "Datos insuficientes: No hay DataFrame")
             
-            if len(market_data) < 14:
-                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas")
+            if len(market_data) < 20:
+                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (Min 20)")
             
-            from ta.momentum import StochasticOscillator
-
-            # Calcular Oscilador Estocástico
-            stoch_indicator = StochasticOscillator(high=market_data['high'], low=market_data['low'], close=market_data['close'])
-            stoch_k = stoch_indicator.stoch()
+            df = market_data.copy()
             
-            if stoch_k is None or len(stoch_k) == 0:
-                return self.format_result("neutral", 0.0, "Error obteniendo Estocástico %K")
+            # --- 1. CÁLCULO DE Z-SCORE ---
             
-            current_stoch = stoch_k.iloc[-1]
+            # SMA (20)
+            df['sma_20'] = df['close'].rolling(window=20).mean()
             
-            # Lógica de trading (igual que pairs_trading)
-            if current_stoch < 20:
-                recommendation = "long"
-                confidence = 0.75
-                justification = f"Estocástico en sobreventa ({current_stoch:.2f} < 20). Oportunidad de arbitraje estadístico"
-            elif current_stoch > 80:
-                recommendation = "short"
-                confidence = 0.75
-                justification = f"Estocástico en sobrecompra ({current_stoch:.2f} > 80). Oportunidad de arbitraje estadístico"
-            else:
-                recommendation = "neutral"
-                confidence = 0.4
-                justification = f"Estocástico en zona neutral ({current_stoch:.2f}). Sin oportunidad de arbitraje clara"
+            # Desviación Estándar (20)
+            df['std_20'] = df['close'].rolling(window=20).std()
             
-            return self.format_result(recommendation, confidence, justification)
+            # Z-Score Formula: (Precio - Media) / Desviación
+            df['z_score'] = (df['close'] - df['sma_20']) / df['std_20']
+            
+            current_z = df['z_score'].iloc[-1]
+            
+            # --- 2. LÓGICA DE REVERSIÓN A LA MEDIA ---
+            
+            signal = "neutral"
+            confidence = 0.0
+            justification = f"Z-Score normal ({current_z:.2f}σ). Ruido de mercado habitual."
+            
+            # Extremo Bajista (Oportunidad de Compra)
+            if current_z < -2.0:
+                if current_z < -3.0:
+                    signal = "long"
+                    confidence = 0.95 # Confianza máxima (Anomalía extrema)
+                    justification = f"📉 Z-SCORE EXTREMO ({current_z:.2f}σ): ¡ANOMALÍA! Precio extremadamente infravalorado."
+                else:
+                    signal = "long"
+                    confidence = 0.8
+                    justification = f"📉 Z-SCORE BAJO ({current_z:.2f}σ): Precio infravalorado estadísticamente. Esperando reversión a la media."
+            
+            # Extremo Alcista (Oportunidad de Venta)
+            elif current_z > 2.0:
+                if current_z > 3.0:
+                    signal = "short"
+                    confidence = 0.95
+                    justification = f"📈 Z-SCORE EXTREMO ({current_z:.2f}σ): ¡BURBUJA LOCAL! Precio extremadamente sobreextendido."
+                else:
+                    signal = "short"
+                    confidence = 0.8
+                    justification = f"📈 Z-SCORE ALTO ({current_z:.2f}σ): Precio sobreextendido."
+            
+            # Resultado
+            result = self.format_result(signal, confidence, justification)
+            # Asegurar que z_score sea float nativo para JSON serialization
+            result['z_score'] = float(current_z) if not np.isnan(current_z) else 0.0
+            
+            return result
             
         except Exception as e:
-            return self.format_result("neutral", 0.0, f"Error en análisis: {str(e)}")
+            return self.format_result("neutral", 0.0, f"Error en análisis Stat Arb: {str(e)}")
