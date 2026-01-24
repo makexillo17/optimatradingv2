@@ -1,269 +1,251 @@
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from .base_module import BaseAnalysisModule
 
 class SmcIctModule(BaseAnalysisModule):
     def __init__(self):
         super().__init__("smc_ict")
-        self.required_fields = [
-            'price_data',
-            'volume_data',
-            'order_blocks',
-            'liquidity_levels',
-            'market_structure'
-        ]
         
     def analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analiza la Tendencia Macro usando EMA 50 y EMA 200"""
+        """
+        SMC Institutional Grade Analysis.
+        Detects: Market Structure, Order Blocks, Liquidity Sweeps, and Breakers.
+        """
         try:
-            # Obtener el DataFrame de market_data
             market_data = data.get('market_data')
             
             if market_data is None or not isinstance(market_data, pd.DataFrame):
                 return self.format_result("neutral", 0.0, "Datos insuficientes: No hay DataFrame")
             
-            # Necesitamos al menos 200 velas para la EMA 200
-            if len(market_data) < 200:
-                # print(f"DEBUG SMC: Solo se recibieron {len(market_data)} velas, se necesitan al menos 200 para EMA")
-                return self.format_result("neutral", 0.0, f"Datos insuficientes: Solo {len(market_data)} velas (Min 200)")
+            # Necesitamos historial suficiente para detectar estructura
+            if len(market_data) < 50:
+                 return self.format_result("neutral", 0.0, f"Datos insuficientes: {len(market_data)} velas (Min 50)")
+
+            df = market_data.copy()
+            df.reset_index(drop=True, inplace=True)
             
-            from ta.trend import EMAIndicator
+            # --- 1. IDENTIFICACIÓN DE PIVOTS (SWING POINTS) ---
+            # Ventana: 2 izquierda, 2 derecha
             
-            # Calcular EMA 50
-            ema50_indicator = EMAIndicator(close=market_data['close'], window=50)
-            ema50 = ema50_indicator.ema_indicator().iloc[-1]
+            def is_pivot_high(idx):
+                if idx < 2 or idx >= len(df) - 2: return False
+                c = df['high'].iloc[idx]
+                return (c > df['high'].iloc[idx-1] and 
+                        c > df['high'].iloc[idx-2] and 
+                        c > df['high'].iloc[idx+1] and 
+                        c > df['high'].iloc[idx+2])
+
+            def is_pivot_low(idx):
+                if idx < 2 or idx >= len(df) - 2: return False
+                c = df['low'].iloc[idx]
+                return (c < df['low'].iloc[idx-1] and 
+                        c < df['low'].iloc[idx-2] and 
+                        c < df['low'].iloc[idx+1] and 
+                        c < df['low'].iloc[idx+2])
+
+            pivots = [] # List of tuples (index, type, price)
+            for i in range(2, len(df) - 2):
+                if is_pivot_high(i):
+                    pivots.append((i, 'high', df['high'].iloc[i]))
+                elif is_pivot_low(i):
+                    pivots.append((i, 'low', df['low'].iloc[i]))
             
-            # Calcular EMA 200
-            ema200_indicator = EMAIndicator(close=market_data['close'], window=200)
-            ema200 = ema200_indicator.ema_indicator().iloc[-1]
+            # Definir Estructura de Mercado (Trend)
+            structure = "Neutral"
+            if len(pivots) >= 4:
+                highs = [p[2] for p in pivots if p[1] == 'high']
+                lows = [p[2] for p in pivots if p[1] == 'low']
+                
+                if len(highs) >= 2 and len(lows) >= 2:
+                    if highs[-1] > highs[-2] and lows[-1] > lows[-2]:
+                        structure = "Bullish Trend"
+                    elif highs[-1] < highs[-2] and lows[-1] < lows[-2]:
+                        structure = "Bearish Trend"
+
+            # --- 2. DETECTION DE ORDER BLOCKS & BREAKERS ---
             
-            current_price = market_data['close'].iloc[-1]
+            # Vamos a identificar los BOS más recientes y encontrar sus OBs
+            # Simplificación: Escaneamos los últimos 2 BOS significativos
+            
+            zones = [] # {'type': 'bull_ob'/'bear_ob'/'bull_breaker'/'bear_breaker', 'top':, 'bottom':, 'quality':}
+            
+            # Iteramos pivots para encontrar quiebres
+            # Buscamos un Pivot High que haya sido roto por el precio posteriormente
+            
+            # BUSCAR BULLISH OBs (Originan rotura de Highs)
+            # 1. Encontrar Pivot High
+            # 2. Encontrar si el precio cerró por encima después
+            # 3. Encontrar el punto más bajo entre el Pivot y la rotura -> Ese es el Swing Low
+            # 4. En ese Swing Low, la última vela bajista es el OB.
+            
+            # Estrategia simplificada:
+            # Tomamos los últimos pivots y veremos si generan zonas activas
+            
+            # Analizar últimos 50 periodos
+            subset = df.iloc[-50:]
+            
+            # Lógica ad-hoc simple para demostración institucional:
+            # Detectar OBs "sin mitigar"
+            # Un OB es válido si el precio no lo ha cruzado invalidándolo completamente
+            
+            # Función auxiliar para crear OB
+            def find_ob_candle(start_idx, end_idx, direction):
+                # direction 'bull': buscamos última vela bajista (red) en el fondo
+                # direction 'bear': buscamos última vela alcista (green) en el tope
+                slice_df = df.iloc[start_idx:end_idx+1]
+                if direction == 'bull':
+                    # Buscar el Low más bajo
+                    min_idx = slice_df['low'].idxmin()
+                    # Buscar desde min_idx hacia atrás la vela roja más cercana (o la misma si es roja)
+                    # O típicamente: la vela roja ANTES del movimiento impulsivo. 
+                    # Simplificación: Usamos la vela del mínimo si es roja, o la anterior.
+                    return min_idx
+                else:
+                    max_idx = slice_df['high'].idxmax()
+                    return max_idx
+
+            # Generación de zonas basada en pivots recientes
+            # Recorremos pivots
+            for i in range(len(pivots) - 1):
+                p_prev = pivots[i]
+                
+                # Check BULLISH BOS: Un Pivot High previo es roto al alza
+                if p_prev[1] == 'high':
+                    # Buscar si el precio rompió este High despues de p_prev[0]
+                    # Buscamos cierre > p_prev[2]
+                    break_candles = df[(df.index > p_prev[0]) & (df['close'] > p_prev[2])]
+                    if not break_candles.empty:
+                        break_idx = break_candles.index[0]
+                        
+                        # El movimiento se originó en el mínimo entre p_prev y break_idx
+                        swing_low_range = df.iloc[p_prev[0]:break_idx]
+                        swing_low_idx = swing_low_range['low'].idxmin()
+                        
+                        # Definir Bullish OB: La vela en swing_low_idx
+                        # (Simplificación ICT: La vela create el Swing suele contener el OB)
+                        ob_top = df['high'].iloc[swing_low_idx]
+                        ob_bottom = df['low'].iloc[swing_low_idx]
+                        
+                        # Sweep Quality?
+                        # Si este low rompió un pivot low anterior
+                        is_sweep = False
+                        prev_lows = [p for p in pivots if p[1] == 'low' and p[0] < swing_low_idx]
+                        if prev_lows and df['low'].iloc[swing_low_idx] < prev_lows[-1][2]:
+                            is_sweep = True
+                            
+                        zones.append({
+                            'type': 'bull_ob',
+                            'top': ob_top,
+                            'bottom': ob_bottom,
+                            'idx': swing_low_idx,
+                            'quality': 'high' if is_sweep else 'normal'
+                        })
+
+                # Check BEARISH BOS: Un Pivot Low previo es roto a la baja
+                if p_prev[1] == 'low':
+                    break_candles = df[(df.index > p_prev[0]) & (df['close'] < p_prev[2])]
+                    if not break_candles.empty:
+                        break_idx = break_candles.index[0]
+                        
+                        swing_high_range = df.iloc[p_prev[0]:break_idx]
+                        swing_high_idx = swing_high_range['high'].idxmax()
+                        
+                        ob_top = df['high'].iloc[swing_high_idx]
+                        ob_bottom = df['low'].iloc[swing_high_idx]
+                        
+                        is_sweep = False
+                        prev_highs = [p for p in pivots if p[1] == 'high' and p[0] < swing_high_idx]
+                        if prev_highs and df['high'].iloc[swing_high_idx] > prev_highs[-1][2]:
+                            is_sweep = True
+
+                        zones.append({
+                            'type': 'bear_ob',
+                            'top': ob_top,
+                            'bottom': ob_bottom,
+                            'idx': swing_high_idx,
+                            'quality': 'high' if is_sweep else 'normal'
+                        })
+
+            # --- 3. Lógica de BREAKERS y VALIDACIÓN ---
+            
+            # Analizar estado actual de las zonas (Active vs Broken)
+            current_close = df['close'].iloc[-1]
+            active_zones = []
+            
+            for z in zones:
+                # Verificar si la zona fue invalidada (rota)
+                # Bullish OB roto a la baja -> Bearish Breaker
+                if z['type'] == 'bull_ob':
+                    # Si el precio cerró por debajo del bottom DESPUES de la creación
+                    # Buscamos cierres < bottom con indice > idx
+                    breaks = df[(df.index > z['idx']) & (df['close'] < z['bottom'])]
+                    if not breaks.empty:
+                        # Se convierte en Bearish Breaker
+                        z['type'] = 'bear_breaker'
+                    
+                    # Validar relevancia: solo nos importa si es reciente (ej: ultimas 100 velas)
+                    if z['idx'] > len(df) - 100:
+                        active_zones.append(z)
+                        
+                elif z['type'] == 'bear_ob':
+                    # Si precio cerró por encima del top -> Bullish Breaker
+                    breaks = df[(df.index > z['idx']) & (df['close'] > z['top'])]
+                    if not breaks.empty:
+                        z['type'] = 'bull_breaker'
+                    
+                    if z['idx'] > len(df) - 100:
+                        active_zones.append(z)
+
+            # --- 4. GENERACIÓN DE SEÑAL ---
             
             signal = "neutral"
             confidence = 0.0
-            justification = f"Estructura neutral/rango. Precio: {current_price:.2f}, EMA50: {ema50:.2f}, EMA200: {ema200:.2f}"
+            justification = f"Estructura: {structure}. Sin zonas de interacción."
+            nearest_ob_type = "None"
+            nearest_ob_price = 0.0
             
-            # --- LÓGICA DE TENDENCIA MACRO ---
+            # Ver si el precio actual está DENTRO de alguna zona activa
+            for z in reversed(active_zones): # Prioridad a las más recientes
+                # Verificar cercanía o toque
+                # Bullish Zone (OB or Breaker)
+                if z['type'] in ['bull_ob', 'bull_breaker']:
+                    # Precio dentro o muy cerca del rango de la zona
+                    # Tolerancia superior (podemos entrar un poco antes)
+                    if z['bottom'] <= current_close <= (z['top'] * 1.001):
+                        signal = "long"
+                        confidence = 0.85
+                        quality_msg = " (SWEEP)" if z.get('quality') == 'high' else ""
+                        breaker_msg = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
+                        nearest_ob_type = f"Bullish {breaker_msg}"
+                        nearest_ob_price = z['top']
+                        
+                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. Estructura: {structure}."
+                        break # Encontramos la más relevante
+                        
+                # Bearish Zone
+                elif z['type'] in ['bear_ob', 'bear_breaker']:
+                    if (z['bottom'] * 0.999) <= current_close <= z['top']:
+                        signal = "short"
+                        confidence = 0.85
+                        quality_msg = " (SWEEP)" if z.get('quality') == 'high' else ""
+                        breaker_msg = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
+                        nearest_ob_type = f"Bearish {breaker_msg}"
+                        nearest_ob_price = z['bottom']
+                        
+                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. Estructura: {structure}."
+                        break
+
+            # Resultado final
+            result = self.format_result(signal, confidence, justification)
+            result.update({
+                'structure': structure,
+                'nearest_ob_type': nearest_ob_type,
+                'nearest_ob_price': float(nearest_ob_price),
+                'pivots_count': len(pivots)
+            })
             
-            # Estructura Alcista: Precio > EMA50 > EMA200
-            if current_price > ema50 and ema50 > ema200:
-                signal = "long"
-                confidence = 0.8
-                justification = f"Estructura Alcista confirmada (Precio > 50 > 200). Precio: {current_price:.2f}, EMA50: {ema50:.2f}, EMA200: {ema200:.2f}"
-            
-            # Estructura Bajista: Precio < EMA50 < EMA200
-            elif current_price < ema50 and ema50 < ema200:
-                signal = "short"
-                confidence = 0.8
-                justification = f"Estructura Bajista confirmada (Precio < 50 < 200). Precio: {current_price:.2f}, EMA50: {ema50:.2f}, EMA200: {ema200:.2f}"
-            
-            return self.format_result(signal, confidence, justification)
+            return result
             
         except Exception as e:
-            return self.format_result("neutral", 0.0, f"Error en análisis Macro Trend: {str(e)}")
-    
-    def _calculate_rsi(self, df: pd.DataFrame, period: int = 14) -> float:
-        """
-        Calcula el RSI (Relative Strength Index) manualmente
-        
-        Args:
-            df: DataFrame con columnas 'close'
-            period: Período para el cálculo (default: 14)
-            
-        Returns:
-            Valor del RSI (0-100)
-        """
-        if 'close' not in df.columns:
-            raise ValueError("El DataFrame debe tener una columna 'close'")
-        
-        # Calcular cambios de precio
-        delta = df['close'].diff()
-        
-        # Separar ganancias y pérdidas
-        gain = delta.where(delta > 0, 0.0)
-        loss = -delta.where(delta < 0, 0.0)
-        
-        # Calcular promedio móvil exponencial de ganancias y pérdidas
-        # Usar promedio simple para los primeros valores
-        avg_gain = gain.rolling(window=period, min_periods=period).mean()
-        avg_loss = loss.rolling(window=period, min_periods=period).mean()
-        
-        # Calcular RS (Relative Strength)
-        rs = avg_gain / avg_loss
-        
-        # Calcular RSI
-        rsi = 100 - (100 / (1 + rs))
-        
-        # Retornar el último valor válido
-        rsi_value = rsi.iloc[-1]
-        
-        # Si es NaN, calcular con promedio simple
-        if pd.isna(rsi_value):
-            avg_gain_simple = gain.tail(period).mean()
-            avg_loss_simple = loss.tail(period).mean()
-            if avg_loss_simple == 0:
-                return 100.0
-            rs_simple = avg_gain_simple / avg_loss_simple
-            rsi_value = 100 - (100 / (1 + rs_simple))
-        
-        return float(rsi_value)
-    
-    def _analyze_order_flow(
-        self,
-        price_data: Dict[str, Any],
-        volume_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Analiza el flujo de órdenes y volumen"""
-        # Analizar imbalance de volumen
-        buy_volume = volume_data['buy_volume']
-        sell_volume = volume_data['sell_volume']
-        volume_imbalance = (buy_volume - sell_volume) / (buy_volume + sell_volume)
-        
-        # Analizar delta de precio
-        open_price = price_data['open']
-        close_price = price_data['close']
-        high_price = price_data['high']
-        low_price = price_data['low']
-        
-        price_range = high_price - low_price
-        close_position = (close_price - low_price) / price_range
-        
-        # Analizar momentum
-        momentum = price_data['momentum_score']
-        
-        # Generar señal combinada
-        signal = np.clip(
-            volume_imbalance * 0.4 + (close_position - 0.5) * 0.3 + momentum * 0.3,
-            -1, 1
-        )
-        
-        return {
-            'signal': signal,
-            'volume_imbalance': volume_imbalance,
-            'close_position': close_position,
-            'momentum': momentum
-        }
-    
-    def _analyze_market_structure(
-        self,
-        market_structure: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Analiza la estructura del mercado"""
-        # Analizar niveles de estructura
-        trend_direction = market_structure['trend_direction']  # 1: up, -1: down, 0: sideways
-        structure_strength = market_structure['structure_strength']
-        
-        # Analizar swing points
-        recent_highs = market_structure['recent_highs']
-        recent_lows = market_structure['recent_lows']
-        
-        # Calcular tendencia de swings
-        swing_trend = self._calculate_swing_trend(recent_highs, recent_lows)
-        
-        # Analizar breaks de estructura
-        break_direction = market_structure['break_direction']
-        break_strength = market_structure['break_strength']
-        
-        # Generar señal
-        base_signal = trend_direction * structure_strength
-        break_signal = break_direction * break_strength
-        swing_signal = swing_trend
-        
-        signal = np.clip(
-            base_signal * 0.4 + break_signal * 0.3 + swing_signal * 0.3,
-            -1, 1
-        )
-        
-        return {
-            'signal': signal,
-            'trend_direction': trend_direction,
-            'structure_strength': structure_strength,
-            'break_direction': break_direction
-        }
-    
-    def _analyze_liquidity_levels(
-        self,
-        liquidity_levels: Dict[str, Any],
-        order_blocks: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Analiza niveles de liquidez y bloques de órdenes"""
-        # Analizar niveles de liquidez
-        nearest_level = liquidity_levels['nearest_level']
-        distance_to_level = liquidity_levels['distance_to_level']
-        level_strength = liquidity_levels['level_strength']
-        
-        # Analizar bloques de órdenes
-        nearest_block = order_blocks['nearest_block']
-        block_type = order_blocks['block_type']  # 1: demand, -1: supply
-        block_strength = order_blocks['block_strength']
-        
-        # Calcular señales de niveles
-        level_signal = level_strength * (1 - min(distance_to_level, 1))
-        block_signal = block_type * block_strength
-        
-        # Generar señal combinada
-        signal = np.clip(
-            level_signal * 0.5 + block_signal * 0.5,
-            -1, 1
-        )
-        
-        return {
-            'signal': signal,
-            'nearest_level': nearest_level,
-            'level_strength': level_strength,
-            'block_type': block_type,
-            'block_strength': block_strength
-        }
-    
-    def _calculate_swing_trend(
-        self,
-        recent_highs: List[float],
-        recent_lows: List[float]
-    ) -> float:
-        """Calcula la tendencia basada en swings"""
-        if len(recent_highs) < 2 or len(recent_lows) < 2:
-            return 0.0
-            
-        # Calcular pendientes
-        high_slope = (recent_highs[-1] - recent_highs[-2]) / 1
-        low_slope = (recent_lows[-1] - recent_lows[-2]) / 1
-        
-        # Combinar pendientes
-        trend = (high_slope + low_slope) / 2
-        
-        # Normalizar
-        return np.clip(trend / 0.01, -1, 1)  # Normalizar con 1% como referencia
-    
-    def _generate_justification(
-        self,
-        order_flow: Dict[str, Any],
-        structure: Dict[str, Any],
-        liquidity: Dict[str, Any],
-        recommendation: str
-    ) -> str:
-        """Genera una justificación detallada"""
-        parts = []
-        
-        # Analizar flujo de órdenes
-        if abs(order_flow['volume_imbalance']) > 0.3:
-            direction = "comprador" if order_flow['volume_imbalance'] > 0 else "vendedor"
-            parts.append(f"Desequilibrio {direction} en el flujo de órdenes")
-            
-        # Analizar estructura
-        if abs(structure['trend_direction']) > 0.7:
-            trend = "alcista" if structure['trend_direction'] > 0 else "bajista"
-            parts.append(f"Estructura de mercado {trend} con fuerza {structure['structure_strength']:.2f}")
-            
-        # Analizar liquidez
-        if liquidity['block_strength'] > 0.7:
-            block = "demanda" if liquidity['block_type'] > 0 else "oferta"
-            parts.append(f"Bloque de {block} fuerte cercano")
-            
-        if not parts:
-            return "No hay señales claras en la estructura del mercado"
-            
-        sentiment = "alcista" if recommendation == "long" else "bajista" if recommendation == "short" else "neutral"
-        parts.append(f"Sesgo {sentiment} basado en análisis SMC/ICT")
-        
-        return ". ".join(parts) + "." 
+            return self.format_result("neutral", 0.0, f"Error en análisis SMC: {str(e)}")
