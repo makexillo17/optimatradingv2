@@ -25,12 +25,12 @@ class BacktestEngine:
     def __init__(self, data_file='data/btc_history.csv', initial_capital=10000.0, commission_rate=0.001):
         self.data_file = data_file
         self.initial_capital = initial_capital
-        self.balance = initial_capital
+        self.balance = initial_capital # Acts as "Free Cash" for Longs, and "Collateral" for Shorts
         self.commission_rate = commission_rate
         self.equity_curve = []
         self.trades = []
         self.position = None 
-        self.verbose = True # ACTIVAR MODO VERBOSE
+        self.verbose = True
         
         # Modules
         self.modules = {
@@ -82,21 +82,20 @@ class BacktestEngine:
             
             # 2. Consensus
             consensus_result = self.consensus.analyze(module_results)
-            # Extraer signal numérico si existe, o usar lógica interna de consensus
-            # El consensus retorna detalles['avg_signal'] en algunos casos o 'signal' en el return directo
             consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
             recommendation = consensus_result.get('recommendation', 'NEUTRAL')
             
-            # --- DEBUGGING / VERBOSE ---
-            if self.verbose:
-                # Filtrar solo casos interesantes (cerca de trigger o muy negativos)
-                if abs(consensus_signal) > 0.3:
-                    smc_rec = module_results.get('smc_ict', {}).get('recommendation', 'neutral')
-                    vsa_rec = module_results.get('broker_behavior', {}).get('recommendation', 'neutral')
-                    adx_val = module_results.get('carry_trade', {}).get('adx_value', 0.0)
-                    
-                    print(f"[{current_time}] Score: {consensus_signal:.2f} | Rec: {recommendation} | SMC: {smc_rec} | VSA: {vsa_rec} | ADX: {adx_val:.1f}")
+            # Use 'signal' key if available directly (some versions of consensus return it)
+            # If not, try to map recommendation to signal for consistency
+            if 'signal' not in consensus_result:
+                if recommendation == 'long': consensus_signal = 0.8
+                elif recommendation == 'short': consensus_signal = -0.8
             
+            # --- VERBOSE DEBUG ---
+            if self.verbose and i % 24 == 0: # Print once a day roughly or interesting ones
+                 if abs(consensus_signal) > 0.25:
+                    print(f"[{current_time}] Score: {consensus_signal:.2f} | Rec: {recommendation}")
+
             # 3. Risk Params
             hedging_info = module_results.get('dynamic_hedging', {})
             stop_long = hedging_info.get('suggested_stop_long', current_price * 0.95)
@@ -110,20 +109,28 @@ class BacktestEngine:
                 module_results
             )
             
-            # Track Equity
+            # 5. Track Equity
             current_equity = self.balance
+            
             if self.position:
                 if self.position['type'] == 'long':
-                    current_equity += (current_price - self.position['entry_price']) * self.position['size']
-                # Short
-                # value = size * price. (Borrowed asset value to repay).
-                # Equity = Balance + Unrealized PnL.
-                # Since Balance adjusted at Entry (simulated cash out), logic holds roughly.
+                    # Equity = Cash + Asset Value
+                    asset_value = self.position['size'] * current_price
+                    current_equity = self.balance + asset_value
+                elif self.position['type'] == 'short':
+                    # Equity = Cash + Unrealized PnL (Entry - Current) * Size
+                    # Note: We did NOT subtract full value from balance on entry for shorts
+                    unrealized_pnl = (self.position['entry_price'] - current_price) * self.position['size']
+                    current_equity = self.balance + unrealized_pnl
             
             self.equity_curve.append({'timestamp': current_time, 'equity': current_equity})
-            
-            if i % 1000 == 0:
-                print(f"Computed {i}/{len(df)} bars. Equity: ${current_equity:.2f}")
+
+        # --- FORCE CLOSE AT END ---
+        if self.position:
+            last_price = df.iloc[-1]['close']
+            last_time = df.iloc[-1]['timestamp']
+            print("Force closing remaining position at end of simulation.")
+            self._close_position(last_price, last_time, "Force Close (End of Data)")
 
         self._generate_report()
 
@@ -136,33 +143,45 @@ class BacktestEngine:
                 if price <= self.position['stop_loss']:
                     self._close_position(price, timestamp, "Stop Loss")
                     return
+            elif self.position['type'] == 'short':
+                if price >= self.position['stop_loss']:
+                    self._close_position(price, timestamp, "Stop Loss")
+                    return
             
             # TAKE PROFIT / REVERSAL
             divergence = module_results.get('yield_anomaly', {}).get('divergence_detected', False)
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
             if self.position['type'] == 'long':
-                if recommendation == 'short' or (divergence and div_rec == 'short'):
+                # Exit Long if signal flips short
+                if consensus_signal < -0.25 or (divergence and div_rec == 'short'):
+                    self._close_position(price, timestamp, "Take Profit/Reversal")
+                    return
+            elif self.position['type'] == 'short':
+                # Exit Short if signal flips long
+                if consensus_signal > 0.25 or (divergence and div_rec == 'long'):
                     self._close_position(price, timestamp, "Take Profit/Reversal")
                     return
 
         # Check Entries
         if not self.position:
-            # ENTRY: Consensus > 0.25 (Relaxed from 0.5) OR Score < -0.25 (Short)
-            
             # LONG ENTRY
             if consensus_signal > 0.25:
-                # Calculate size
-                capital = self.balance
-                size_asset = (capital * 0.99) / price
+                # Max Risk 1% of Equity? Or Full size?
+                # User prompt implied full size earlier, let's stick to simple "All In" model with buffer
+                
+                # Equity estimate
+                equity = self.balance # No position, so equity = balance
+                
+                # Size calculation (99% of capital)
+                size_asset = (equity * 0.99) / price
                 cost = size_asset * price
                 fee = cost * self.commission_rate
                 
-                # Check affordable
-                total_cost = cost + fee
-                if total_cost > self.balance:
+                if (cost + fee) > self.balance:
                     size_asset = (self.balance - fee) / price
                 
+                # DEDUCT CASH for Long
                 self.balance -= (size_asset * price + fee)
                 
                 self.position = {
@@ -176,38 +195,18 @@ class BacktestEngine:
                 
             # SHORT ENTRY
             elif consensus_signal < -0.25:
-                # Simplified Short: We sell asset we don't have (Borrow).
-                # Cash (Balance) increases by Price * Size. Debt (Position) is Size.
-                # Here we model "Inverse Long" PnL for simplicity or proper Short?
-                # Proper Short:
-                # Initial Margin = Balance. We sell size worth roughly margin (1x leverage).
-                # Cash += Size * Price.
-                # Exit: We Buy back. Cash -= Size * Price.
-                # Profit = EntryPrice - ExitPrice.
+                # SHORT LOGIC (CFD/Margin Style)
+                # We DO NOT deduct full cost from balance. We only deduct fee.
+                # We use balance as collateral.
                 
-                capital = self.balance
-                size_asset = (capital * 0.99) / price
-                revenue = size_asset * price
-                fee = revenue * self.commission_rate
+                equity = self.balance
+                size_asset = (equity * 0.99) / price # Leverage 1:1 roughly
                 
-                # We need margin to open.
-                # If balance is 10k, we sell 10k worth.
-                # Cash becomes 20k? (10k collateral + 10k proceeds).
-                # Let's keep simpler logic: Position tracks entry. PnL calculated at exit.
-                # Balance stays separate or acts as collateral.
-                # For CONSISTENCY with Long logic above (Balance -= cost):
-                # Let's say we put up COLLATERAL equal to trade value.
-                # cost = size * price.
-                # balance -= cost + fee. (Collateral locked).
-                # Exit: Return collateral +/- pnl.
+                # Initial Fee
+                notional_value = size_asset * price
+                fee = notional_value * self.commission_rate
                 
-                cost = size_asset * price
-                fee = cost * self.commission_rate
-                
-                if (cost + fee) > self.balance:
-                     size_asset = (self.balance - fee) / price
-                
-                self.balance -= (size_asset * price + fee) # Lock collateral
+                self.balance -= fee 
                 
                 self.position = {
                     'type': 'short',
@@ -221,49 +220,73 @@ class BacktestEngine:
     def _close_position(self, price, timestamp, reason):
         if not self.position: return
         
-        # Calculate PnL based on type
         entry_price = self.position['entry_price']
         size = self.position['size']
         
-        # Calculate Release of Capital
-        # We locked (Size * Entry) + EntryFee.
-        # We need to return: (Size * Entry) +/- PnL - ExitFee
-        
-        entry_val = size * entry_price
-        exit_val = size * price
-        
+        # Calculate Economics
         if self.position['type'] == 'long':
-            gross_pnl = exit_val - entry_val
-        else:
-            gross_pnl = entry_val - exit_val # Short: Profit if Entry > Exit
+            # Sell Asset -> Cash
+            revenue = size * price
+            fee = revenue * self.commission_rate
+            
+            # Cash In
+            self.balance += (revenue - fee)
+            
+            # PnL (for stats)
+            # We assume entry fee was paid from balance at start
+            # entry cost was size * entry_price
+            # PnL = (revenue - fee) - (entry_cost + entry_fee)
+            # But entry_fee is already gone from balance.
+            # So Delta Balance = (revenue - fee) - entry_cost? 
+            # No, Delta Balance is just the PnL of the round trip.
+            # Let's verify:
+            # Start: Bal = 10000.
+            # Buy: Cost 9000. Fee 9. Bal = 991. Position = 9000 val.
+            # Sell: Rev 9500. Fee 9.5. Bal += 9490.5 -> 10481.5.
+            # Total Profit = 481.5.
+            # Calc: (9500 - 9000) - 9 - 9.5 = 500 - 18.5 = 481.5. Correct.
+            
+            gross_pnl = (price - entry_price) * size
+            entry_fee = (size * entry_price) * self.commission_rate
+            net_pnl = gross_pnl - fee - entry_fee
+            
+        else: # SHORT
+            # Cover Short
+            # PnL = (Entry - Exit) * Size
+            gross_pnl = (entry_price - price) * size
+            
+            cover_cost = size * price
+            exit_fee = cover_cost * self.commission_rate
+            
+            # Update Balance (which held Collateral)
+            # Balance += Net PnL - Exit Fee
+            # (Note: Entry fee was already deducted)
+            
+            net_pnl = gross_pnl - exit_fee 
+            
+            # Note on PnL reporting: we want to subtract entry fee too for 'Net Trade PnL'
+            entry_fee = (size * entry_price) * self.commission_rate
+            # But entry fee was ALREADY deducted from balance.
+            
+            # So to update Balance correctly:
+            # We just add the PnL from the price movement and subtract exit fee.
+            self.balance += (gross_pnl - exit_fee)
+            
+            # For reported trade PnL statistic, we include entry fee
+            trade_pnl_report = gross_pnl - exit_fee - entry_fee
+            net_pnl = trade_pnl_report # Use this for the logs
 
-        exit_fee = exit_val * self.commission_rate
-        net_pnl = gross_pnl - exit_fee
-        
-        # Return Capital (EntryVal) + NetPnL
-        # Note: We already deducted entry fee from balance.
-        # So we return: EntryVal + NetPnL
-        
-        returned_capital = entry_val + net_pnl
-        self.balance += returned_capital
-        
-        # For Reporting (Net PnL of the full trade cycle)
-        # Cycle PnL = NetPnL - EntryFee
-        # We paid EntryFee at start.
-        entry_fee = entry_val * self.commission_rate
-        trade_pnl_net = net_pnl - entry_fee
-        
         self.trades.append({
             'entry_time': self.position['entry_time'],
             'exit_time': timestamp,
             'type': self.position['type'],
             'entry_price': entry_price,
             'exit_price': price,
-            'pnl': trade_pnl_net,
+            'pnl': net_pnl,
             'reason': reason
         })
         
-        print(f"[{timestamp}] CLOSE {self.position['type'].upper()} @ {price:.2f} ({reason}). PnL: ${trade_pnl_net:.2f}")
+        print(f"[{timestamp}] CLOSE {self.position['type'].upper()} @ {price:.2f} ({reason}). PnL: ${net_pnl:.2f}")
         self.position = None
 
     def _generate_report(self):
@@ -297,7 +320,7 @@ class BacktestEngine:
         if not equity_series.empty:
             plt.figure(figsize=(10,6))
             plt.plot(equity_series['timestamp'], equity_series['equity'])
-            plt.title(f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f}")
+            plt.title(f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f} | Trades {len(self.trades)}")
             plt.xlabel("Date")
             plt.ylabel("Capital ($)")
             plt.grid(True)
