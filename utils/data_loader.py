@@ -20,6 +20,7 @@ def download_history(symbol='BTC/USD', timeframe='1h', days=365):
     exchange = ccxt.kraken()
     limit_hours = days * 24
     
+    # Calcular timestamp de inicio
     since = exchange.milliseconds() - (limit_hours * 3600 * 1000)
     
     all_ohlcv = []
@@ -27,19 +28,24 @@ def download_history(symbol='BTC/USD', timeframe='1h', days=365):
     
     while len(all_ohlcv) < limit_hours:
         try:
+            # Kraken devuelve hasta 720 velas por request
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe, since=current_since)
             if not ohlcv:
                 break
             
             all_ohlcv.extend(ohlcv)
-            current_since = ohlcv[-1][0] + 1
             
-            print(f"Descargados {len(ohlcv)} velas. Total: {len(all_ohlcv)}")
+            # Actualizar 'since' para la siguiente petición: timestamp de la última vela + 1ms
+            last_timestamp = ohlcv[-1][0]
+            current_since = last_timestamp + 1
             
-            if len(ohlcv) < 720: 
+            print(f"Descargando lote... Total descargado: {len(all_ohlcv)} velas")
+            
+            # Si devuelve menos de lo esperado, es probable que hayamos llegado al presente
+            if len(ohlcv) < 1: 
                 break
                 
-            time.sleep(1) 
+            time.sleep(1) # Respetar rate limit de API pública
             
         except Exception as e:
             print(f"Error descargando datos: {e}")
@@ -48,9 +54,13 @@ def download_history(symbol='BTC/USD', timeframe='1h', days=365):
     df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
     
-    # Limpiar
+    # Limpiar duplicados y ordenar
     df = df.drop_duplicates(subset=['timestamp']).sort_values('timestamp').reset_index(drop=True)
     
+    # Recortar si descargamos de más
+    if len(df) > limit_hours:
+        df = df.iloc[-limit_hours:]
+        
     df.to_csv(filepath, index=False)
     print(f"Datos guardados en {filepath}. Total filas: {len(df)}")
     

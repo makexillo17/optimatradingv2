@@ -30,6 +30,7 @@ class BacktestEngine:
         self.equity_curve = []
         self.trades = []
         self.position = None 
+        self.verbose = True # ACTIVAR MODO VERBOSE
         
         # Modules
         self.modules = {
@@ -37,9 +38,11 @@ class BacktestEngine:
             'broker_behavior': BrokerBehaviorModule(),
             'yield_anomaly': YieldAnomalyModule(),
             'dynamic_hedging': DynamicHedgingModule(),
-            # ... include all needed
             'gap_sniper': GapSniperModule(),
-            'volatility_arb': VolatilityArbModule()
+            'volatility_arb': VolatilityArbModule(),
+            'carry_trade': CarryTradeModule(),
+            'stat_arb': StatArbModule(),
+            'liquidity_provision': LiquidityProvisionModule()
         }
         self.consensus = ConsensusAnalyzer()
         
@@ -79,10 +82,20 @@ class BacktestEngine:
             
             # 2. Consensus
             consensus_result = self.consensus.analyze(module_results)
-            # Extraer signal numérico si existe, o inferir
-            # El consensus devuelve 'signal' (float) en los cambios recientes
-            consensus_signal = consensus_result.get('signal', 0.0) 
+            # Extraer signal numérico si existe, o usar lógica interna de consensus
+            # El consensus retorna detalles['avg_signal'] en algunos casos o 'signal' en el return directo
+            consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
             recommendation = consensus_result.get('recommendation', 'NEUTRAL')
+            
+            # --- DEBUGGING / VERBOSE ---
+            if self.verbose:
+                # Filtrar solo casos interesantes (cerca de trigger o muy negativos)
+                if abs(consensus_signal) > 0.3:
+                    smc_rec = module_results.get('smc_ict', {}).get('recommendation', 'neutral')
+                    vsa_rec = module_results.get('broker_behavior', {}).get('recommendation', 'neutral')
+                    adx_val = module_results.get('carry_trade', {}).get('adx_value', 0.0)
+                    
+                    print(f"[{current_time}] Score: {consensus_signal:.2f} | Rec: {recommendation} | SMC: {smc_rec} | VSA: {vsa_rec} | ADX: {adx_val:.1f}")
             
             # 3. Risk Params
             hedging_info = module_results.get('dynamic_hedging', {})
@@ -101,14 +114,15 @@ class BacktestEngine:
             current_equity = self.balance
             if self.position:
                 if self.position['type'] == 'long':
-                    val = self.position['size'] * current_price
-                    pnl_unrealized = val - (self.position['size'] * self.position['entry_price'])
-                    current_equity += pnl_unrealized
-                # Short logic simplified (Inverse)
+                    current_equity += (current_price - self.position['entry_price']) * self.position['size']
+                # Short
+                # value = size * price. (Borrowed asset value to repay).
+                # Equity = Balance + Unrealized PnL.
+                # Since Balance adjusted at Entry (simulated cash out), logic holds roughly.
             
             self.equity_curve.append({'timestamp': current_time, 'equity': current_equity})
             
-            if i % 500 == 0:
+            if i % 1000 == 0:
                 print(f"Computed {i}/{len(df)} bars. Equity: ${current_equity:.2f}")
 
         self._generate_report()
@@ -124,7 +138,6 @@ class BacktestEngine:
                     return
             
             # TAKE PROFIT / REVERSAL
-            # Si Consensus cambia a Short o Divergencia Bajista
             divergence = module_results.get('yield_anomaly', {}).get('divergence_detected', False)
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
@@ -135,14 +148,13 @@ class BacktestEngine:
 
         # Check Entries
         if not self.position:
-            # ENTRY: Consensus > 0.5
+            # ENTRY: Consensus > 0.6 (Threshold defined in Consensus for BUY_TREND)
+            # Prompt asks for > 0.5 entry
             if consensus_signal > 0.5:
-                # Calculate size (Simplified: Full capital minus fee buffer)
-                # Apply 0.1% commission
                 capital = self.balance
-                size_asset = (capital * 0.99) / price # Leave 1% buffer
+                size_asset = (capital * 0.99) / price
                 
-                # Apply fee
+                # Apply fee from balance
                 cost = size_asset * price
                 fee = cost * self.commission_rate
                 self.balance -= fee 
@@ -159,45 +171,43 @@ class BacktestEngine:
     def _close_position(self, price, timestamp, reason):
         if not self.position: return
         
-        # Sell
         revenue = self.position['size'] * price
         fee = revenue * self.commission_rate
         net_revenue = revenue - fee
         
+        # Simplified Cash update
+        # We need to add the difference back? 
+        # Wait, if we did self.balance -= fee at start, balance holds the 'Principle' essentially?
+        # No, balance should track Cash.
+        # Entry: Buy Asset. Cash -= (Volume * Price + Fee). 
+        # Exit: Sell Asset. Cash += (Volume * Price - Fee).
+        # Fix Entry logic in code block above:
+        # self.balance -= (size_asset * price + fee)
+        # That would drain account to ~0.
+        # Let's fix Entry Block:
+        # self.balance -= (size_asset * price + fee)
+        # Close Block:
+        # self.balance += net_revenue
+        
+        # PATCH ENTRY LOGIC VIA THIS STRING UPDATE:
+        # I need to ensure the Entry code subtracts the cost.
+        # See below in _manage_positions
+        
         cost_basis = self.position['size'] * self.position['entry_price']
-        # Note: fee was already deducted from balance at entry? 
-        # Actually in simple model, balance tracks CASH.
-        # At entry: Balance -> Asset (Cash decreases)
-        # At exit: Asset -> Balance (Cash increases)
         
-        # Re-calculating properly for PnL tracking:
-        # Initial cash = cost_basis + entry_fee
-        # Final cash = revenue - exit_fee
-        # PnL = Final - Initial
+        # In this simplistic model where 'balance' acts as 'Cash':
+        self.balance += net_revenue 
         
-        # However, self.balance in my code above tracks "Liquidation Value" roughly or strict cash?
-        # Let's fix simple cash tracking:
-        # Entry: self.balance -= cost + fee
-        # Exit: self.balance += revenue - fee
+        # PnL Calculation
+        # Entry cost was: size * entry_price + entry_fee
+        # Exit revenue was: size * exit_price - exit_fee
+        # Net PnL = Exit Rev - Entry Cost
+        entry_fee = cost_basis * self.commission_rate # Approx, based on size
+        total_entry_cost = cost_basis + entry_fee
         
-        # Since I didn't deduct full cost at entry (kept balance as 'Equity' mentally in previous logic but here logic is different)
-        # Let's stick to: Position holds the 'Active Capital'.
-        # Actually common pattern:
-        # Balance = Cash.
-        # Entry: Cash -> 0 (All in position).
-        # Exit: Cash -> New Amount.
+        net_pnl = net_revenue - total_entry_cost
         
-        # Correcting Entry Logic post-hoc in mind:
-        # In _manage_positions entry:
-        # self.balance -= (cost + fee) # Now balance is small dust
-        
-        # Here:
-        self.balance += net_revenue
-        
-        gross_pnl = revenue - cost_basis
-        total_fees = (cost_basis * self.commission_rate) + fee
-        net_pnl = gross_pnl - total_fees
-        
+        # For reporting only. Balance is truth.
         self.trades.append({
             'entry_time': self.position['entry_time'],
             'exit_time': timestamp,
@@ -250,15 +260,51 @@ class BacktestEngine:
             print("Chart saved to equity_curve.png")
 
 if __name__ == "__main__":
-    # Fix entry cash logic
-    # Monkey patch: redefine logic above or just verify indentation
-    # I wrote _manage_positions assuming balance is Cash.
-    # In Entry: self.balance -= fee. Then balance seems to stay as "Capital committed"? 
-    # NO. If I buy, I swap Cash for Asset.
-    # Updated Entry Logic in code:
+    # Correction of Entry Logic for Cash Accounting
+    # In _manage_positions:
     # self.balance -= (size_asset * price + fee)
-    # Corrected below in actual string writing
-    pass 
-    
+    # Applying this fix in the string below
     eng = BacktestEngine()
+    
+    # Monkey-patching _manage_positions entry logic for correct cash flow
+    original_manage = eng._manage_positions
+    
+    def patched_manage(price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results):
+        # Check Exits first (same as original)
+        if eng.position:
+            if eng.position['type'] == 'long':
+                if price <= eng.position['stop_loss']:
+                    eng._close_position(price, timestamp, "Stop Loss")
+                    return
+            divergence = module_results.get('yield_anomaly', {}).get('divergence_detected', False)
+            div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
+            if eng.position['type'] == 'long':
+                if recommendation == 'short' or (divergence and div_rec == 'short'):
+                    eng._close_position(price, timestamp, "Take Profit/Reversal")
+                    return
+
+        # Check Entries
+        if not eng.position:
+             if consensus_signal > 0.5:
+                capital = eng.balance
+                size_asset = (capital * 0.99) / price
+                cost = size_asset * price
+                fee = cost * eng.commission_rate
+                total_cost = cost + fee
+                
+                if total_cost > eng.balance:
+                    size_asset = (eng.balance - fee) / price # readjust
+                
+                eng.balance -= (size_asset * price + fee) # DEDUCT CASH
+                
+                eng.position = {
+                    'type': 'long',
+                    'entry_price': price,
+                    'size': size_asset,
+                    'stop_loss': stop_long,
+                    'entry_time': timestamp
+                }
+                print(f"[{timestamp}] BUY LONG @ {price:.2f} (Signal: {consensus_signal:.2f})")
+    
+    eng._manage_positions = patched_manage
     eng.run()
