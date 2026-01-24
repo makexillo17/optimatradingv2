@@ -42,9 +42,11 @@ ta==0.10.2
 sqlalchemy
 psycopg2-binary
 
+
 # Visualization
 streamlit
 plotly
+matplotlib
 
 # Infrastructure
 python-dotenv==0.20.0
