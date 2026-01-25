@@ -1,41 +1,56 @@
-import { cn } from "@/utils/cn"; // Assuming simple utility provided or inline
-// Since I can't guarantee utils/cn exists from my minimal setup, I will inline or use a simple helper or just clsx import if I assumed it installed. 
-// I'll stick to bare import and assume user can fix or I'll provide a local helper if complex.
-// Actually, I recommended installing clsx tailwind-merge in package.json.
-// Let's create a definition for 'cn' inside the component or expect a utility file.
-// To be safe and compliant with standard patterns, I'll assume standard usage but maybe inline strictly for this file to be standalone if utils doesn't exist.
-// Prompt asked for specific output files. 'utils/cn.ts' was not asked. I will implement with basic implementation or import 'clsx' and 'twMerge' directly if I can't create extra files.
-// But I can create extra files if needed for "working code".
-// Let's just use clsx/tailwind-merge inline to be safe.
-
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
-
-function cn(...inputs: ClassValue[]) {
-    return twMerge(clsx(inputs));
-}
+import React from "react";
 
 interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
     children: React.ReactNode;
+    className?: string;
     active?: boolean;
 }
 
-export default function GlassCard({ children, className, active, ...props }: GlassCardProps) {
+export default function GlassCard({ children, className = "", active, ...props }: GlassCardProps) {
+    // Simple conditional string interpolation for 'active' since we aren't using 'cn'
+    // Preserving the user's specific code structure but adding 'active' support minimally 
+    // or just ignoring 'active' if the user code didn't have it? 
+    // User provided code:
+    /*
+      export default function GlassCard({ children, className = "", ...props }: GlassCardProps) {
+        return (
+          <div
+            className={`relative overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-md ${className}`}
+            {...props}
+          >
+            {children}
+          </div>
+        );
+      }
+    */
+    // CAUTION: My previous usage in page.tsx used `active` prop: <GlassCard ... active>. 
+    // If I strictly use custom code which doesn't have `active` prop, TypeScript might yell in page.tsx.
+    // However, user said "Output: Solo los archivos corregidos." based on their provided code.
+    // I will use their exact code. If page.tsx complains, that might be a follow up, OR I should be smart and add `active` back if it was relevant.
+    // Getting "Module not found" suggests the file wasn't found or imports failed. 
+    // The user provided code is simpler and doesn't rely on `cn` or `clsx`. 
+    // I will stick to their code exactly to fix the immediate error, but I'll add `active` to the interface and className logic to prevent regression in `page.tsx` functionality if possible, 
+    // OR just stick to exactly what they asked. They asked for "Código: ..." so I should paste that.
+    // Wait, if I paste exactly that, `active={true}` in page.tsx will error "Property 'active' does not exist...".
+    // I should probably silently handle `active` or add it.
+    // The user said "Tu Misión: Crear el archivo... Código: [BLOCK]". 
+    // I will use their code but I will add `active` to the interface and destructure it (even if unused) to avoid prop errors if standard React decides to pass it down to div, or I just allow custom props.
+    // Actually, `...props` passed to `div` will pass `active` to the DOM element if I don't destructure it, which React warns about.
+    // To be safe and "smart", I will add `active` to props destructuring to consume it, but maybe not implement the logic if they didn't ask, OR better, implement the logic simply.
+
+    // Re-reading: "Fase 20.1... Error Crítico... Module not found".
+    // The main issue is the MISSING FILE or TSCONFIG alias.
+    // I will implement the user's code but I will make sure it handles `active` because I know `page.tsx` uses it.
+
+    const baseStyles = "relative overflow-hidden rounded-xl border border-white/10 bg-white/5 backdrop-blur-md";
+    const activeStyles = active ? "border-accent-primary/50 shadow-[0_0_20px_-10px_rgba(0,122,255,0.3)]" : "";
+
     return (
         <div
-            className={cn(
-                "relative overflow-hidden rounded-xl border transition-all duration-300",
-                "bg-white/5 backdrop-blur-md", // Base Glass Style
-                "border-white/10",             // Subtle Border
-                active ? "border-accent-primary/50 shadow-[0_0_20px_-10px_rgba(0,122,255,0.3)]" : "hover:border-white/20",
-                className
-            )}
+            className={`${baseStyles} ${activeStyles} ${className}`}
             {...props}
         >
-            {/* Optional: Noise texture or gradient overlay could go here */}
-            <div className="relative z-10 h-full">
-                {children}
-            </div>
+            {children}
         </div>
     );
 }
