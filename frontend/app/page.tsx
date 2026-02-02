@@ -163,10 +163,15 @@ const LogsModule = () => (
 // --- MAIN PAGE ---
 
 export default function Dashboard() {
+    const [mounted, setMounted] = useState(false);
     const [marketData, setMarketData] = useState<ApiResponse | null>(null);
     const [renderData, setRenderData] = useState<RenderData>({ verdict: null, history: [] });
     const [loading, setLoading] = useState(true);
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     const fetchData = async () => {
         try {
@@ -240,6 +245,8 @@ export default function Dashboard() {
             icon: <Terminal className="h-4 w-4 text-neutral-500" />,
         },
     ];
+
+    if (!mounted) return <div className="min-h-screen bg-black" />;
 
     return (
         <main className="min-h-screen bg-background p-6 font-sans relative flex flex-col">
