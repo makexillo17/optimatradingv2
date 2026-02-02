@@ -252,45 +252,44 @@ class ConsensusAnalyzer:
         dynamic_weights: Dict[str, float],
         module_results: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Genera el consenso final usando Weighted Net Score"""
+        """Genera el consenso usando Net Power (Convicción Neta Promedio)"""
         
-        score_long = 0.0
-        score_short = 0.0
-        total_active_weight = 0.0
+        long_power = 0.0
+        short_power = 0.0
+        active_count = 0
         
-        # Iterar sobre los resultados RAW para determinar dirección clara
-        # Usamos dynamic_weights para la ponderación
+        # Usamos la confianza directa de los módulos para "Power"
+        # Ignoramos adjusted_signals y dynamic_weights para este cálculo específico
+        # para cumplir con la lógica de "Suma de Confianza / Conteo".
         
         for module, result in module_results.items():
-            if module not in dynamic_weights:
-                continue
-                
-            weight = dynamic_weights[module]
             confidence = result.get('confidence', 0.0)
             rec = result.get('recommendation', 'neutral')
             
             if rec == 'long':
-                score_long += confidence * weight
-                total_active_weight += weight
+                long_power += confidence
+                active_count += 1
             elif rec == 'short':
-                score_short += confidence * weight
-                total_active_weight += weight
+                short_power += confidence
+                active_count += 1
             
-        if total_active_weight > 0:
-            net_score = (score_long - score_short) / total_active_weight
+        if active_count > 0:
+            net_power = long_power - short_power
+            final_confidence = abs(net_power) / active_count
+            signal_numeric = net_power / active_count
         else:
-            net_score = 0.0
+            net_power = 0.0
+            final_confidence = 0.0
+            signal_numeric = 0.0
             
-        # Definir Umbrales
-        # Valor absoluto < 0.15 -> Neutral
-        final_confidence = abs(net_score)
-        
-        if final_confidence < 0.15:
+        # Definir Umbral de Activación (0.10)
+        # Si la confianza neta promedio es muy baja, nos mantenemos neutrales
+        if final_confidence < 0.10:
             recommendation = "neutral"
         else:
-            recommendation = "long" if net_score > 0 else "short"
+            recommendation = "long" if net_power > 0 else "short"
             
-        # Calcular consistencia y cobertura para métricas secundarias
+        # Métricas secundarias
         module_consistency = self._calculate_module_consistency(
             module_results,
             recommendation
@@ -301,14 +300,14 @@ class ConsensusAnalyzer:
         return {
             'recommendation': recommendation,
             'confidence': final_confidence,
-            'signal': net_score, # Signal numeric para el dashboard
+            'signal': signal_numeric, # Mapeado a signal_numeric como net_power promedio
             'consistency': module_consistency,
             'coverage': coverage,
             'details': {
-                'score_long': score_long,
-                'score_short': score_short,
-                'total_active_weight': total_active_weight,
-                'net_score': net_score
+                'long_power': long_power,
+                'short_power': short_power,
+                'active_count': active_count,
+                'net_power': net_power
             }
         }
         
