@@ -46,51 +46,71 @@ class ConsensusAnalyzer:
                         'details': {'source': 'gap_sniper_priority'}
                     }
 
-            # --- PRIORIDAD 2: EL CONSENSO (Análisis de Motores) ---
-            # Calcular señales ajustadas para el resto de motores
-            adjusted_signals = self._calculate_adjusted_signals(module_results)
-            dynamic_weights = self._calculate_dynamic_weights(module_results, market_regime)
+            # --- PRIORIDAD 2: EL CONSENSO (Convicción Neta) ---
             
-            # Calcular promedio ponderado (excluyendo o incluyendo gap_sniper? 
-            # Si gap_sniper es neutral, no afecta mucho, pero mejor usamos todos para el 'Trend')
+            long_power = 0.0
+            short_power = 0.0
+            active_count = 0
             
-            total_signal = 0.0
-            total_weight = 0.0
+            # Usar dynamic weights para referencia si es necesario, pero la lógica solicitada es Net Power
+            # Calculamos sobre todos los resultados disponibles
             
-            for module, signal in adjusted_signals.items():
-                # Podemos excluir gap_sniper del promedio de "motores" si queremos pureza,
-                # pero dejarlo tampoco daña si es neutral.
-                weight = dynamic_weights.get(module, 0.0)
-                total_signal += signal * weight
-                total_weight += weight
+            for module, result in module_results.items():
+                if module == 'gap_sniper': continue # Gap Sniper es prioridad 1, ya evaluado o se excluye del promedio general
+                
+                confidence = result.get('confidence', 0.0)
+                rec = result.get('recommendation', 'neutral')
+                
+                if rec == 'long':
+                    long_power += confidence
+                    active_count += 1
+                elif rec == 'short':
+                    short_power += confidence
+                    active_count += 1
+                # Neutral no suma a power ni a count (para no diluir la convicción direccional pura)
+                
+            if active_count > 0:
+                net_power = (long_power - short_power) / active_count
+            else:
+                net_power = 0.0
+                
+            final_confidence = abs(net_power)
+            signal_numeric = net_power
             
-            avg_signal = total_signal / total_weight if total_weight > 0 else 0.0
+            # Umbral 0.15
+            bias_text = "Neutral"
+            if final_confidence < 0.15:
+                recommendation = "neutral"
+                justification_text = "⚖️ Mercado en equilibrio. Convicción neta insuficiente (< 15%)."
+            else:
+                if net_power > 0:
+                    recommendation = "long"
+                    bias_text = "Alcista"
+                    justification_text = f"🐂 Convicción Neta Alcista ({final_confidence:.1%}). Sesgo comprador dominante."
+                else:
+                    recommendation = "short"
+                    bias_text = "Bajista"
+                    justification_text = f"🐻 Convicción Neta Bajista ({final_confidence:.1%}). Sesgo vendedor dominante."
             
-            # Verificar confirmación de SMC (Contexto Macro)
+            # Verificar confirmación de SMC para reforzar o debilitar (opcional, pero buena práctica mantener contexto)
             smc_trend = "neutral"
             if 'smc_ict' in module_results:
                 smc_rec = module_results['smc_ict'].get('recommendation', 'neutral')
-                smc_trend = smc_rec # long/short/neutral
+                if smc_rec == recommendation and final_confidence > 0.15:
+                    justification_text += " Confirmado por Estructura (SMC)."
             
-            # -- Lógica de Tendencia --
-            # Si promedio muy alto (> 0.6) y SMC confirma
-            if avg_signal > 0.6 and smc_trend == 'long':
-                return {
-                    'recommendation': "BUY_TREND",
-                    'confidence': 0.8, # Confianza alta por confirmación múltiple
-                    'justification': "✅ ENTRADA TÉCNICA: Análisis de motores positivo (Tendencia + Indicadores).",
-                    'details': {'avg_signal': avg_signal, 'smc_trend': smc_trend}
+            return {
+                'recommendation': recommendation,
+                'confidence': final_confidence,
+                'signal': signal_numeric,
+                'justification': justification_text,
+                'details': {
+                    'net_power': net_power,
+                    'active_modules': active_count,
+                    'long_power': long_power,
+                    'short_power': short_power
                 }
-            
-            # Si promedio muy bajo (< -0.6) - (Nota: SMC bajista sería ideal confirmar, pero prompt solo dijo < -0.6)
-            # Agregamos sentido común: idealmente SMC no debería ser 'long'
-            elif avg_signal < -0.6: 
-                 return {
-                    'recommendation': "SELL_TREND",
-                    'confidence': 0.8,
-                    'justification': "🔻 SALIDA TÉCNICA: Debilidad estructural en múltiples motores.",
-                    'details': {'avg_signal': avg_signal}
-                }
+            }
 
             # --- PRIORIDAD 3: ESPERA ---
             return {
