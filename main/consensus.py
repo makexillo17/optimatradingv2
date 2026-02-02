@@ -72,6 +72,23 @@ class ConsensusAnalyzer:
                             self.logger.info(f"SMC OVERRIDE: Ignorando Carry Trade ({carry_rec}) por Estructura SMC ({smc_rec})")
                             del module_results['carry_trade']
 
+            # --- VOLUME RULE (Broker Behavior) ---
+            # Si el volumen relativo (RVOL) es bajo (< 1.2), la señal es débil.
+            if 'broker_behavior' in module_results:
+                rvol = module_results['broker_behavior'].get('metrics', {}).get('rvol', 0.0)
+                # Fallback a details si metrics falla (por compatibilidad)
+                if rvol == 0.0:
+                    rvol = module_results['broker_behavior'].get('details', {}).get('rvol', 0.0)
+                
+                if rvol > 0 and rvol < 1.2:
+                    return {
+                        'recommendation': "NEUTRAL",
+                        'confidence': 0.0,
+                        'signal': 0.0,
+                        'justification': f"⚠️ VETO POR VOLUMEN: RVOL {rvol:.2f} < 1.2. Mercado sin potencia institucional.",
+                        'details': {'reason': 'low_volume_veto', 'rvol': rvol}
+                    }
+
             for module, result in module_results.items():
                 if module == 'gap_sniper': continue # Gap Sniper es prioridad 1, ya evaluado o se excluye del promedio general
                 

@@ -169,11 +169,11 @@ class BacktestEngine:
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
             if self.position['type'] == 'long':
-                if consensus_signal < -0.55 or (divergence and div_rec == 'short'):
+                if consensus_signal < -0.50 or (divergence and div_rec == 'short'):
                     self._close_position(price, timestamp, "Take Profit/Reversal")
                     return
             elif self.position['type'] == 'short':
-                if consensus_signal > 0.55 or (divergence and div_rec == 'long'):
+                if consensus_signal > 0.50 or (divergence and div_rec == 'long'):
                     self._close_position(price, timestamp, "Take Profit/Reversal")
                     return
 
@@ -181,9 +181,12 @@ class BacktestEngine:
         # COOLDOWN CHECK and Trend Filter
         if not self.position and self.cooldown == 0 and current_regime != 'NOISE':
             
+            # Dynamic Threshold based on Regime (although NOISE is banned, good for robustness)
+            entry_threshold = 0.70 if current_regime == 'NOISE' else 0.55
+            
             # LONG ENTRY
-            # Signal > 0.55 AND Price > EMA 200
-            if consensus_signal > 0.55:
+            # Signal > Threshold AND Price > EMA 200
+            if consensus_signal > entry_threshold:
                 if price > ema200:
                     capital = self.balance
                     size_asset = (capital * 0.99) / price # Use available cash
@@ -209,8 +212,8 @@ class BacktestEngine:
                         print(f"[{timestamp}] FILTERED LONG: Price ({price:.2f}) < EMA200 ({ema200:.2f})")
 
             # SHORT ENTRY
-            # Signal < -0.55 AND Price < EMA 200
-            elif consensus_signal < -0.55:
+            # Signal < -Threshold AND Price < EMA 200
+            elif consensus_signal < -entry_threshold:
                 if price < ema200:
                     equity = self.balance
                     size_asset = (equity * 0.99) / price
