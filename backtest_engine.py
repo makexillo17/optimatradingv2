@@ -124,7 +124,8 @@ class BacktestEngine:
                 consensus_signal, recommendation, 
                 stop_long, stop_short, 
                 module_results,
-                current_ema200
+                current_ema200,
+                current_regime
             )
             
             # 5. Track Equity
@@ -149,7 +150,7 @@ class BacktestEngine:
 
         self._generate_report()
 
-    def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results, ema200):
+    def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results, ema200, current_regime):
         
         # Check Exits
         if self.position:
@@ -168,21 +169,21 @@ class BacktestEngine:
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
             if self.position['type'] == 'long':
-                if consensus_signal < -0.30 or (divergence and div_rec == 'short'):
+                if consensus_signal < -0.55 or (divergence and div_rec == 'short'):
                     self._close_position(price, timestamp, "Take Profit/Reversal")
                     return
             elif self.position['type'] == 'short':
-                if consensus_signal > 0.30 or (divergence and div_rec == 'long'):
+                if consensus_signal > 0.55 or (divergence and div_rec == 'long'):
                     self._close_position(price, timestamp, "Take Profit/Reversal")
                     return
 
         # Check Entries
         # COOLDOWN CHECK and Trend Filter
-        if not self.position and self.cooldown == 0:
+        if not self.position and self.cooldown == 0 and current_regime != 'NOISE':
             
             # LONG ENTRY
-            # Signal > 0.30 AND Price > EMA 200
-            if consensus_signal > 0.30:
+            # Signal > 0.55 AND Price > EMA 200
+            if consensus_signal > 0.55:
                 if price > ema200:
                     capital = self.balance
                     size_asset = (capital * 0.99) / price # Use available cash
@@ -202,14 +203,14 @@ class BacktestEngine:
                         'stop_loss': stop_long,
                         'entry_time': timestamp
                     }
-                    print(f"[{timestamp}] BUY LONG @ {price:.2f} (Score: {consensus_signal:.2f} > 0.3 | > EMA200)")
+                    print(f"[{timestamp}] BUY LONG @ {price:.2f} (Score: {consensus_signal:.2f} > 0.55 | > EMA200)")
                 else:
-                    if self.verbose and consensus_signal > 0.4:
+                    if self.verbose and consensus_signal > 0.55:
                         print(f"[{timestamp}] FILTERED LONG: Price ({price:.2f}) < EMA200 ({ema200:.2f})")
 
             # SHORT ENTRY
-            # Signal < -0.30 AND Price < EMA 200
-            elif consensus_signal < -0.30:
+            # Signal < -0.55 AND Price < EMA 200
+            elif consensus_signal < -0.55:
                 if price < ema200:
                     equity = self.balance
                     size_asset = (equity * 0.99) / price
@@ -230,9 +231,9 @@ class BacktestEngine:
                         'stop_loss': stop_short,
                         'entry_time': timestamp
                     }
-                    print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Score: {consensus_signal:.2f} < -0.3 | < EMA200)")
+                    print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Score: {consensus_signal:.2f} < -0.55 | < EMA200)")
                 else:
-                    if self.verbose and consensus_signal < -0.4:
+                    if self.verbose and consensus_signal < -0.55:
                          print(f"[{timestamp}] FILTERED SHORT: Price ({price:.2f}) > EMA200 ({ema200:.2f})")
 
     def _close_position(self, price, timestamp, reason):

@@ -55,6 +55,23 @@ class ConsensusAnalyzer:
             # Usar dynamic weights para referencia si es necesario, pero la lógica solicitada es Net Power
             # Calculamos sobre todos los resultados disponibles
             
+            # --- INSTITUTIONAL OVERRIDE (SMC Priority) ---
+            # Si SMC detecta SWEEP o ORDER BLOCK, ignoramos Carry Trade si va en contra.
+            if 'smc_ict' in module_results:
+                smc_res = module_results['smc_ict']
+                smc_rec = smc_res.get('recommendation', 'neutral')
+                smc_just = smc_res.get('justification', '').upper()
+                smc_details = str(smc_res.get('details', {})).upper()
+                
+                is_institutional_setup = "SWEEP" in smc_just or "ORDER BLOCK" in smc_just or "SWEEP" in smc_details or "ORDER BLOCK" in smc_details
+                
+                if is_institutional_setup and smc_rec != 'neutral':
+                    if 'carry_trade' in module_results:
+                        carry_rec = module_results['carry_trade'].get('recommendation', 'neutral')
+                        if carry_rec != 'neutral' and carry_rec != smc_rec:
+                            self.logger.info(f"SMC OVERRIDE: Ignorando Carry Trade ({carry_rec}) por Estructura SMC ({smc_rec})")
+                            del module_results['carry_trade']
+
             for module, result in module_results.items():
                 if module == 'gap_sniper': continue # Gap Sniper es prioridad 1, ya evaluado o se excluye del promedio general
                 
@@ -133,7 +150,7 @@ class ConsensusAnalyzer:
             'liquidity_provision': 1.0,
             'market_making': 1.0,
             'pairs_trading': 1.0,
-            'smc_ict': 2.5,
+            'smc_ict': 3.0,
             'stat_arb': 1.0,
             'volatility_arb': 1.0,
             'yield_anomaly': 1.0

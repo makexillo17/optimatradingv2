@@ -46,8 +46,8 @@ class DynamicHedgingModule(BaseAnalysisModule):
             highest_high = df['high'].rolling(window=20).max().iloc[-1]
             lowest_low = df['low'].rolling(window=20).min().iloc[-1]
             
-            long_stop = highest_high - (3.0 * current_atr)
-            short_stop = lowest_low + (3.0 * current_atr)
+            long_stop = highest_high - (2.5 * current_atr)
+            short_stop = lowest_low + (2.5 * current_atr)
             
             # --- 4. LÓGICA DE DIMENSIONAMIENTO (Position Sizing) ---
             
