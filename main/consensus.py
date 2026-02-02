@@ -252,34 +252,45 @@ class ConsensusAnalyzer:
         dynamic_weights: Dict[str, float],
         module_results: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Genera el consenso final ponderado"""
-        # Calcular señal agregada
-        weighted_signal = 0.0
-        total_weight = 0.0
+        """Genera el consenso final usando Weighted Net Score"""
         
-        for module, signal in adjusted_signals.items():
-            weight = dynamic_weights.get(module, 0.0)
-            weighted_signal += signal * weight
-            total_weight += weight
+        score_long = 0.0
+        score_short = 0.0
+        total_active_weight = 0.0
+        
+        # Iterar sobre los resultados RAW para determinar dirección clara
+        # Usamos dynamic_weights para la ponderación
+        
+        for module, result in module_results.items():
+            if module not in dynamic_weights:
+                continue
+                
+            weight = dynamic_weights[module]
+            confidence = result.get('confidence', 0.0)
+            rec = result.get('recommendation', 'neutral')
             
-        if total_weight > 0:
-            final_signal = weighted_signal / total_weight
+            if rec == 'long':
+                score_long += confidence * weight
+                total_active_weight += weight
+            elif rec == 'short':
+                score_short += confidence * weight
+                total_active_weight += weight
+            
+        if total_active_weight > 0:
+            net_score = (score_long - score_short) / total_active_weight
         else:
-            return self._generate_neutral_response("No se pudo calcular consenso")
+            net_score = 0.0
             
-        # Determinar recomendación
-        if abs(final_signal) < 0.3:
+        # Definir Umbrales
+        # Valor absoluto < 0.15 -> Neutral
+        final_confidence = abs(net_score)
+        
+        if final_confidence < 0.15:
             recommendation = "neutral"
         else:
-            recommendation = "long" if final_signal > 0 else "short"
+            recommendation = "long" if net_score > 0 else "short"
             
-        # Calcular confianza
-        # Basada en:
-        # - Magnitud de la señal
-        # - Consistencia entre módulos
-        # - Número de módulos activos
-        signal_confidence = min(abs(final_signal), 1.0)
-        
+        # Calcular consistencia y cobertura para métricas secundarias
         module_consistency = self._calculate_module_consistency(
             module_results,
             recommendation
@@ -287,18 +298,18 @@ class ConsensusAnalyzer:
         
         coverage = len(module_results) / len(self.module_weights)
         
-        final_confidence = (
-            signal_confidence * 0.4 +
-            module_consistency * 0.4 +
-            coverage * 0.2
-        )
-        
         return {
             'recommendation': recommendation,
             'confidence': final_confidence,
-            'signal': final_signal,
+            'signal': net_score, # Signal numeric para el dashboard
             'consistency': module_consistency,
-            'coverage': coverage
+            'coverage': coverage,
+            'details': {
+                'score_long': score_long,
+                'score_short': score_short,
+                'total_active_weight': total_active_weight,
+                'net_score': net_score
+            }
         }
         
     def _calculate_module_consistency(
