@@ -142,31 +142,57 @@ class ConsensusAnalyzer:
         self,
         module_results: Dict[str, Any]
     ) -> Dict[str, float]:
-        """Calcula señales ajustadas por correlación"""
+        """Calcula señales ajustadas por correlación, considerando solo módulos activos"""
         modules = list(self.module_weights.keys())
         n_modules = len(modules)
         
+        # Identificar qué módulos están activos
+        active_indices = [i for i, m in enumerate(modules) if m in module_results]
+        
+        if not active_indices:
+            return {}
+
         # Extraer señales originales
         raw_signals = np.zeros(n_modules)
-        for i, module in enumerate(modules):
-            if module in module_results:
-                result = module_results[module]
-                recommendation = result.get('recommendation', 'neutral')
-                signal = 1.0 if recommendation == 'long' else -1.0 if recommendation == 'short' else 0.0
-                confidence = result.get('confidence', 0.0)
-                raw_signals[i] = signal * confidence
+        for i in active_indices:
+            module = modules[i]
+            result = module_results[module]
+            recommendation = result.get('recommendation', 'neutral')
+            signal = 1.0 if recommendation == 'long' else -1.0 if recommendation == 'short' else 0.0
+            confidence = result.get('confidence', 0.0)
+            raw_signals[i] = signal * confidence
                 
-        # Ajustar por correlaciones
+        # Ajustar por correlaciones (Sólo entre activos)
         adjusted_signals = {}
-        for i, module in enumerate(modules):
-            if module in module_results:
-                # Calcular ajuste por correlación
-                correlations = self.correlation_matrix[i]
-                other_signals = raw_signals * correlations
+        for i in active_indices:
+            module = modules[i]
+            
+            # Calcular influencia de otros módulos ACTIVOS
+            correlations = self.correlation_matrix[i]
+            
+            # Filtramos 'other_signals' para usar solo índices activos
+            # (raw_signals ya es 0 en inactivos, pero para el promedio/mean
+            # es importante dividir por el número correcto de contribuyentes, no N total)
+            
+            influenced_signal_sum = 0.0
+            influence_count = 0
+            
+            for j in active_indices:
+                if i == j: continue # No auto-correlación en el promedio externo
+                influenced_signal_sum += raw_signals[j] * correlations[j]
+                influence_count += 1
+            
+            if influence_count > 0:
+                mean_influence = influenced_signal_sum / influence_count
+                # La señal ajustada es promedio entre propia y la influencia externa
+                # Si la influencia externa es baja (porque los otros son neutrales), baja la señal.
+                # Si los otros confirman, se mantiene o sube.
+                adjusted_signal = (raw_signals[i] + mean_influence) / 2
+            else:
+                # Si es el único módulo activo, no hay ajuste por correlación
+                adjusted_signal = raw_signals[i]
                 
-                # La señal ajustada es un promedio entre la señal original y el efecto de correlación
-                adjusted_signal = (raw_signals[i] + np.mean(other_signals)) / 2
-                adjusted_signals[module] = adjusted_signal
+            adjusted_signals[module] = adjusted_signal
                 
         return adjusted_signals
         

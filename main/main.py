@@ -78,6 +78,7 @@ class OptimatradingMain:
                 consensus_result,
                 module_results,
                 asset_symbol,
+                current_price=float(current_price) if current_price is not None else None
             )
 
             # 5. Guardar Señal en Base de Datos (Persistencia)
@@ -191,6 +192,7 @@ class OptimatradingMain:
         consensus_result: Dict[str, Any],
         module_results: Dict[str, Any],
         asset_symbol: str,
+        current_price: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Formatea el resultado final del análisis."""
         return {
@@ -198,6 +200,8 @@ class OptimatradingMain:
             "asset_symbol": asset_symbol,
             "recommendation": consensus_result["recommendation"],
             "confidence": consensus_result["confidence"],
+            "current_price": current_price,
+            "signal": consensus_result.get("signal", 0.0),
             "justification": consensus_result["justification"],
             "module_results": module_results,
             "consensus_details": consensus_result.get("details", {}),
