@@ -21,6 +21,7 @@ from modulos.market_making import MarketMakingModule
 from modulos.market_regime import detect_regime
 
 from main.consensus import ConsensusAnalyzer
+from llm_client import ClaudeTrader
 
 class BacktestEngine:
     def __init__(self, data_file='data/btc_history.csv', initial_capital=10000.0, commission_rate=0.001):
@@ -46,6 +47,9 @@ class BacktestEngine:
             'liquidity_provision': LiquidityProvisionModule()
         }
         self.consensus = ConsensusAnalyzer()
+
+        # AI Engine
+        self.trader = ClaudeTrader()
         
     def load_data(self):
         if not os.path.exists(self.data_file):
@@ -84,7 +88,7 @@ class BacktestEngine:
             current_time = current_candle['timestamp']
             current_ema200 = current_candle['ema200']
             
-            # 1. Run Analysis
+            # 1. Run Analysis (modules still used for exits / risk)
             module_results = {}
             market_input = {'market_data': current_df}
             
@@ -94,38 +98,58 @@ class BacktestEngine:
                 except Exception:
                     pass
             
-            # 2. Consensus
-            # Calculate Market Regime
+            # 2. Consensus (kept for exit signals & regime detection)
             current_regime = detect_regime(current_df)
             
             consensus_result = self.consensus.analyze(module_results, market_regime=current_regime)
             consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
             recommendation = consensus_result.get('recommendation', 'NEUTRAL')
             
-            # Use 'signal' key if available directly
             if 'signal' not in consensus_result:
                 if recommendation == 'long': consensus_signal = 0.8
                 elif recommendation == 'short': consensus_signal = -0.8
-            
+
+            # 3. AI Decision — ClaudeTrader
+            current_row = {
+                'timestamp': str(current_time),
+                'open': float(current_candle['open']),
+                'high': float(current_candle['high']),
+                'low': float(current_candle['low']),
+                'close': float(current_price),
+                'volume': float(current_candle['volume']),
+                'ema200': float(current_ema200),
+                'regime': current_regime,
+                'consensus_signal': float(consensus_signal),
+            }
+
+            try:
+                ai_decision = self.trader.analyze_market_data(current_row)
+            except Exception as e:
+                print(f"[{current_time}] Error en ClaudeTrader: {e} — defaulting to HOLD")
+                ai_decision = "HOLD"
+
+            print(f"[{current_time}] Claude decidio: {ai_decision}")
+
             # --- VERBOSE DEBUG ---
             if self.verbose and i % 24 == 0:
                  if abs(consensus_signal) > 0.3 or current_regime == 'NOISE':
                     trend_status = "BULL" if current_price > current_ema200 else "BEAR"
                     print(f"[{current_time}] Regime: {current_regime} | Score: {consensus_signal:.2f} | Trend: {trend_status} | SMC: {module_results.get('smc_ict', {}).get('recommendation')}")
 
-            # 3. Risk Params
+            # 4. Risk Params
             hedging_info = module_results.get('dynamic_hedging', {})
             stop_long = hedging_info.get('suggested_stop_long', current_price * 0.95)
             stop_short = hedging_info.get('suggested_stop_short', current_price * 1.05)
             
-            # 4. Logic
+            # 5. Position Management (entries driven by AI, exits by modules)
             self._manage_positions(
                 current_price, current_time, 
                 consensus_signal, recommendation, 
                 stop_long, stop_short, 
                 module_results,
                 current_ema200,
-                current_regime
+                current_regime,
+                ai_decision
             )
             
             # 5. Track Equity
@@ -150,9 +174,9 @@ class BacktestEngine:
 
         self._generate_report()
 
-    def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results, ema200, current_regime):
+    def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results, ema200, current_regime, ai_decision="HOLD"):
         
-        # Check Exits
+        # ── Check Exits (unchanged — driven by modules & risk params) ──
         if self.position:
             # STOP LOSS
             if self.position['type'] == 'long':
@@ -169,75 +193,60 @@ class BacktestEngine:
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
             if self.position['type'] == 'long':
-                if consensus_signal < -0.50 or (divergence and div_rec == 'short'):
-                    self._close_position(price, timestamp, "Take Profit/Reversal")
+                if ai_decision == "SELL" or consensus_signal < -0.50 or (divergence and div_rec == 'short'):
+                    self._close_position(price, timestamp, f"AI/Reversal (Claude: {ai_decision})")
                     return
             elif self.position['type'] == 'short':
-                if consensus_signal > 0.50 or (divergence and div_rec == 'long'):
-                    self._close_position(price, timestamp, "Take Profit/Reversal")
+                if ai_decision == "BUY" or consensus_signal > 0.50 or (divergence and div_rec == 'long'):
+                    self._close_position(price, timestamp, f"AI/Reversal (Claude: {ai_decision})")
                     return
 
-        # Check Entries
-        # COOLDOWN CHECK and Trend Filter
+        # ── Check Entries (driven by Claude AI decision) ──────────────
         if not self.position and self.cooldown == 0 and current_regime != 'NOISE':
             
-            # Dynamic Threshold based on Regime (although NOISE is banned, good for robustness)
-            entry_threshold = 0.70 if current_regime == 'NOISE' else 0.55
-            
-            # LONG ENTRY
-            # Signal > Threshold AND Price > EMA 200
-            if consensus_signal > entry_threshold:
-                if price > ema200:
-                    capital = self.balance
-                    size_asset = (capital * 0.99) / price # Use available cash
-                    
-                    cost = size_asset * price
-                    fee = cost * self.commission_rate
-                    
-                    if (cost + fee) > self.balance:
-                        size_asset = (self.balance - fee) / price
-                    
-                    self.balance -= (size_asset * price + fee)
-                    
-                    self.position = {
-                        'type': 'long',
-                        'entry_price': price,
-                        'size': size_asset,
-                        'stop_loss': stop_long,
-                        'entry_time': timestamp
-                    }
-                    print(f"[{timestamp}] BUY LONG @ {price:.2f} (Score: {consensus_signal:.2f} > 0.55 | > EMA200)")
-                else:
-                    if self.verbose and consensus_signal > 0.55:
-                        print(f"[{timestamp}] FILTERED LONG: Price ({price:.2f}) < EMA200 ({ema200:.2f})")
+            # LONG ENTRY — Claude says BUY
+            if ai_decision == "BUY":
+                capital = self.balance
+                size_asset = (capital * 0.99) / price
+                
+                cost = size_asset * price
+                fee = cost * self.commission_rate
+                
+                if (cost + fee) > self.balance:
+                    size_asset = (self.balance - fee) / price
+                
+                self.balance -= (size_asset * price + fee)
+                
+                self.position = {
+                    'type': 'long',
+                    'entry_price': price,
+                    'size': size_asset,
+                    'stop_loss': stop_long,
+                    'entry_time': timestamp
+                }
+                print(f"[{timestamp}] BUY LONG @ {price:.2f} (Claude: BUY | Regime: {current_regime})")
 
-            # SHORT ENTRY
-            # Signal < -Threshold AND Price < EMA 200
-            elif consensus_signal < -entry_threshold:
-                if price < ema200:
-                    equity = self.balance
-                    size_asset = (equity * 0.99) / price
-                    
-                    notional_value = size_asset * price
-                    fee = notional_value * self.commission_rate
-                    
-                    if fee > self.balance:
-                         # Not enough for fee
-                         return
-                    
-                    self.balance -= fee 
-                    
-                    self.position = {
-                        'type': 'short',
-                        'entry_price': price,
-                        'size': size_asset,
-                        'stop_loss': stop_short,
-                        'entry_time': timestamp
-                    }
-                    print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Score: {consensus_signal:.2f} < -0.55 | < EMA200)")
-                else:
-                    if self.verbose and consensus_signal < -0.55:
-                         print(f"[{timestamp}] FILTERED SHORT: Price ({price:.2f}) > EMA200 ({ema200:.2f})")
+            # SHORT ENTRY — Claude says SELL
+            elif ai_decision == "SELL":
+                equity = self.balance
+                size_asset = (equity * 0.99) / price
+                
+                notional_value = size_asset * price
+                fee = notional_value * self.commission_rate
+                
+                if fee > self.balance:
+                     return
+                
+                self.balance -= fee 
+                
+                self.position = {
+                    'type': 'short',
+                    'entry_price': price,
+                    'size': size_asset,
+                    'stop_loss': stop_short,
+                    'entry_time': timestamp
+                }
+                print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Claude: SELL | Regime: {current_regime})")
 
     def _close_position(self, price, timestamp, reason):
         if not self.position: return
