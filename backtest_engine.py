@@ -7,6 +7,23 @@ import sys
 # Ensure root directory is in path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+# ── Debug: verificar carga de .env ──────────────────────────────────
+from dotenv import load_dotenv
+from pathlib import Path
+
+# Ruta absoluta al .env del proyecto (evita problemas con espacios en ruta)
+_PROJECT_ROOT = Path(r"c:\Users\chump\OneDrive\proyecto personal")
+_env_path = _PROJECT_ROOT / ".env"
+
+print(f"Buscando .env en: {_env_path}  (existe: {_env_path.exists()})")
+load_dotenv(dotenv_path=str(_env_path), override=True)
+
+_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+if _key:
+    print(f"Llave encontrada: {_key[:5]}...{_key[-4:]}  (len={len(_key)})")
+else:
+    print("ADVERTENCIA: ANTHROPIC_API_KEY no encontrada. Verifica tu archivo .env")
+
 # Import Modules
 from modulos.smc_ict import SmcIctModule
 from modulos.broker_behavior import BrokerBehaviorModule

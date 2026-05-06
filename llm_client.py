@@ -18,9 +18,6 @@ import pandas as pd
 from dotenv import load_dotenv
 from anthropic import Anthropic
 
-# ── Cargar .env (idempotente si ya se llamó en main.py) ─────────────
-load_dotenv()
-
 logger = logging.getLogger("ClaudeTrader")
 
 # ── System Prompt estricto ──────────────────────────────────────────
@@ -75,8 +72,12 @@ class ClaudeTrader:
         self.max_tokens: int = ai_cfg.get("max_tokens", 1024)
         self.temperature: float = ai_cfg.get("temperature", 0)
 
-        # 3. API key desde entorno
-        self.api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")
+        # 3. API key desde entorno — forzar recarga de .env del proyecto
+        _project_root = Path(r"c:\Users\chump\OneDrive\proyecto personal")
+        env_path = _project_root / ".env"
+        load_dotenv(dotenv_path=str(env_path), override=True)
+
+        self.api_key: str = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         if not self.api_key:
             logger.warning(
                 "ANTHROPIC_API_KEY no está configurada. "
