@@ -1,10 +1,19 @@
 import logging
+import os
 import traceback
 from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+# ── Cargar variables de entorno desde .env ──────────────────────────
+load_dotenv()  # busca .env en la raíz del proyecto
+
+# Lectura temprana de la API key de Anthropic
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 from fastapi import FastAPI                     #  ←  Import correcto, fuera de la clase
 from loader.loader import MarketDataLoader as DataLoader
@@ -14,8 +23,6 @@ from utils.logger import setup_logger
 from modulos.gap_sniper import GapSniperModule
 from modulos.database import init_db, save_signal, get_recent_signals     #  <-- Importar persistencia y query
 import ccxt
-
-import os
 
 class OptimatradingMain:
     def __init__(self):
@@ -367,7 +374,6 @@ def test_sniper():
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main.main:app", host="0.0.0.0", port=port, reload=True)
 

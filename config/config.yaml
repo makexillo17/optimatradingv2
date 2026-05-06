@@ -38,4 +38,12 @@ cache:
   host: localhost
   port: 6379
   db: 0
-  ttl: 3600  # 1 hour in seconds 
+  ttl: 3600  # 1 hour in seconds
+
+# ── AI Engine (Claude / Anthropic) ──────────────────────────────────
+ai_engine:
+  model: "claude-3-5-sonnet-20240620"
+  max_tokens: 1024
+  temperature: 0
+  # La API key se lee desde la variable de entorno ANTHROPIC_API_KEY
+  # (ver .env.example para referencia)
