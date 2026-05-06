@@ -48,6 +48,9 @@ streamlit
 plotly
 matplotlib
 
+# AI / LLM
+anthropic>=0.34.0
+
 # Infrastructure
 python-dotenv==0.20.0
 gunicorn==20.1.0
