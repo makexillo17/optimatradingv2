@@ -40,16 +40,21 @@ _PROJECT_ROOT = Path(r"c:\Users\chump\OneDrive\proyecto personal")
 
 # ── System Prompt estricto ──────────────────────────────────────────
 SYSTEM_PROMPT = (
-    "You are a quantitative trading engine. "
-    "You will receive market data including price action, volume, "
-    "and technical indicators for a financial asset.\n\n"
+    "You are a CONSERVATIVE quantitative trading engine. "
+    "Your PRIMARY objective is CAPITAL PRESERVATION.\n\n"
     "RULES:\n"
-    "1. Analyze the data objectively using quantitative reasoning.\n"
-    "2. Your response MUST be exactly ONE of these three words: "
-    "BUY, SELL, or HOLD.\n"
+    "1. Analyze the data using quantitative reasoning.\n"
+    "2. Your response MUST be exactly ONE word: BUY, SELL, or HOLD.\n"
     "3. Do NOT include any explanation, punctuation, or additional text.\n"
-    "4. Do NOT wrap the answer in quotes or code blocks.\n"
-    "5. Respond with a single word only."
+    "4. BIAS TOWARD HOLD: When in doubt, ALWAYS choose HOLD.\n"
+    "5. REGIME AWARENESS:\n"
+    "   - If regime is NOISE or RANGING: You must be 5x MORE STRICT. "
+    "Only output BUY or SELL if the signal is EXTREMELY clear and unambiguous. "
+    "In 90%% of NOISE/RANGING cases, the correct answer is HOLD.\n"
+    "   - If regime is TRENDING: Normal analysis applies, but still prefer HOLD "
+    "over marginal signals.\n"
+    "6. NEVER chase a move. If the price has already moved significantly, say HOLD.\n"
+    "7. Respond with a single word only."
 )
 
 # Longitud esperada de una API key de Anthropic
@@ -168,6 +173,7 @@ class ClaudeTrader:
         self,
         current_data: Union[Dict[str, Any], pd.DataFrame],
         context_docs: Optional[str] = None,
+        market_regime: Optional[str] = None,
     ) -> str:
         """
         Envía los datos de mercado a Claude y devuelve la decisión limpia.
@@ -198,7 +204,7 @@ class ClaudeTrader:
             )
 
         # ── Construir el user prompt ────────────────────────────────
-        user_prompt = self._build_user_prompt(current_data, context_docs)
+        user_prompt = self._build_user_prompt(current_data, context_docs, market_regime)
 
         # ── Llamar a la API de Anthropic ────────────────────────────
         try:
@@ -258,6 +264,7 @@ class ClaudeTrader:
     def _build_user_prompt(
         data: Union[Dict[str, Any], pd.DataFrame],
         context_docs: Optional[str] = None,
+        market_regime: Optional[str] = None,
     ) -> str:
         """Convierte los datos de mercado en un prompt textual."""
         parts: list[str] = []
@@ -265,6 +272,17 @@ class ClaudeTrader:
         # Contexto adicional (documentos de estrategia, etc.)
         if context_docs:
             parts.append(f"### Reference Context\n{context_docs}\n")
+
+        # Régimen de mercado (contexto crítico para Claude conservador)
+        if market_regime:
+            parts.append(f"### Market Regime: {market_regime}")
+            if market_regime in ('NOISE', 'RANGING'):
+                parts.append(
+                    "⚠️ WARNING: This is a HIGH-RISK regime. "
+                    "You must be EXTREMELY cautious. Default to HOLD "
+                    "unless the signal is absolutely unambiguous."
+                )
+            parts.append("")
 
         # Datos de mercado
         parts.append("### Current Market Data")

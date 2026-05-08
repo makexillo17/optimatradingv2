@@ -199,14 +199,40 @@ class SmcIctModule(BaseAnalysisModule):
 
             # --- 4. GENERACIÓN DE SEÑAL ---
             
+            # --- VOLUME VALIDATION (Institutional Confirmation) ---
+            # Calcular RVOL: Volumen relativo al promedio de 20 períodos
+            has_volume = 'volume' in df.columns and df['volume'].sum() > 0
+            if has_volume:
+                vol_ma_20 = df['volume'].rolling(window=20).mean()
+            else:
+                vol_ma_20 = pd.Series([1.0] * len(df), index=df.index)
+            
             signal = "neutral"
             confidence = 0.0
             justification = f"Estructura: {structure}. Sin zonas de interacción."
             nearest_ob_type = "None"
             nearest_ob_price = 0.0
+            ob_rvol = 0.0  # Diagnóstico: RVOL del OB que generó la señal
             
             # Ver si el precio actual está DENTRO de alguna zona activa
             for z in reversed(active_zones): # Prioridad a las más recientes
+                
+                # ── FILTRO DE VOLUMEN INSTITUCIONAL ──────────────────
+                # Solo validar OBs con volumen >= 1.5x el promedio de 20 períodos
+                if has_volume:
+                    ob_idx = z['idx']
+                    ob_volume = df['volume'].iloc[ob_idx]
+                    ob_vol_ma = vol_ma_20.iloc[ob_idx]
+                    if pd.notna(ob_vol_ma) and ob_vol_ma > 0:
+                        zone_rvol = ob_volume / ob_vol_ma
+                    else:
+                        zone_rvol = 0.0
+                    
+                    if zone_rvol < 1.5:
+                        continue  # OB sin volumen institucional → fantasma, ignorar
+                else:
+                    zone_rvol = 0.0  # Sin datos de volumen, no filtrar
+                
                 # Verificar cercanía o toque
                 # Bullish Zone (OB or Breaker)
                 if z['type'] in ['bull_ob', 'bull_breaker']:
@@ -219,8 +245,9 @@ class SmcIctModule(BaseAnalysisModule):
                         breaker_msg = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
                         nearest_ob_type = f"Bullish {breaker_msg}"
                         nearest_ob_price = z['top']
+                        ob_rvol = zone_rvol
                         
-                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. Estructura: {structure}."
+                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. RVOL: {zone_rvol:.2f}. Estructura: {structure}."
                         break # Encontramos la más relevante
                         
                 # Bearish Zone
@@ -232,8 +259,9 @@ class SmcIctModule(BaseAnalysisModule):
                         breaker_msg = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
                         nearest_ob_type = f"Bearish {breaker_msg}"
                         nearest_ob_price = z['bottom']
+                        ob_rvol = zone_rvol
                         
-                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. Estructura: {structure}."
+                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. RVOL: {zone_rvol:.2f}. Estructura: {structure}."
                         break
 
             # Resultado final
@@ -242,6 +270,7 @@ class SmcIctModule(BaseAnalysisModule):
                 'structure': structure,
                 'nearest_ob_type': nearest_ob_type,
                 'nearest_ob_price': float(nearest_ob_price),
+                'ob_rvol': float(ob_rvol),
                 'pivots_count': len(pivots)
             })
             

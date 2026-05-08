@@ -1,8 +1,10 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import csv
 import os
 import sys
+import time
 
 # Ensure root directory is in path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -63,6 +65,10 @@ class BacktestEngine:
         self.position = None 
         self.verbose = True
         
+        # ── Forensic Analysis Log ───────────────────────────────────
+        self.forensic_log = []  # List of dicts for brutal_analysis_log.csv
+        self._last_exit_reason = None  # Tracks most recent exit reason per candle
+        
         # Modules
         self.modules = {
             'smc_ict': SmcIctModule(),
@@ -117,6 +123,9 @@ class BacktestEngine:
             current_time = current_candle['timestamp']
             current_ema200 = current_candle['ema200']
             
+            # Reset per-candle exit reason tracker
+            self._last_exit_reason = None
+            
             # 1. Run Analysis (modules still used for exits / risk)
             module_results = {}
             market_input = {'market_data': current_df}
@@ -152,12 +161,19 @@ class BacktestEngine:
             }
 
             try:
-                ai_decision = self.trader.analyze_market_data(current_row)
+                ai_decision = self.trader.analyze_market_data(current_row, market_regime=current_regime)
             except Exception as e:
                 print(f"[{current_time}] Error en ClaudeTrader: {e} — defaulting to HOLD")
                 ai_decision = "HOLD"
 
             print(f"[{current_time}] Claude decidio: {ai_decision}")
+            time.sleep(1.5)  # Rate limit: evitar Error 429 de Anthropic
+
+            # ── VEDA TOTAL: NOISE = HOLD FORZADO ──────────────────────
+            if current_regime == 'NOISE':
+                if ai_decision != "HOLD":
+                    print(f"[{current_time}] 🚫 VEDA NOISE: Claude dijo {ai_decision} → forzado a HOLD")
+                ai_decision = "HOLD"
 
             # --- VERBOSE DEBUG ---
             if self.verbose and i % 24 == 0:
@@ -194,6 +210,68 @@ class BacktestEngine:
             
             self.equity_curve.append({'timestamp': current_time, 'equity': current_equity})
 
+            # ── 6. FORENSIC LOG — brutal_analysis_log.csv ──────────
+            carry_result = module_results.get('carry_trade', {})
+            smc_result = module_results.get('smc_ict', {})
+            
+            carry_signal = carry_result.get('recommendation', 'N/A')
+            carry_conf = carry_result.get('confidence', 0.0)
+            carry_just = carry_result.get('justification', '')
+            
+            smc_signal = smc_result.get('recommendation', 'N/A')
+            smc_conf = smc_result.get('confidence', 0.0)
+            smc_structure = smc_result.get('structure', 'N/A')
+            smc_ob_type = smc_result.get('nearest_ob_type', 'None')
+            
+            is_noise = current_regime == 'NOISE'
+            
+            # Identify the culprit module on exit rows
+            culprit = ''
+            if self._last_exit_reason:
+                # Find which module likely caused a losing trade
+                last_trade = self.trades[-1] if self.trades else None
+                if last_trade and last_trade['pnl'] < 0:
+                    # Determine blame: was the entry signal wrong?
+                    trade_type = last_trade['type']  # 'long' or 'short'
+                    if trade_type == 'long':
+                        # Entered long — who recommended long?
+                        if carry_signal == 'long':
+                            culprit += 'CarryTrade(long) '
+                        if smc_signal == 'long':
+                            culprit += 'SMC(long) '
+                        culprit += f'Claude(BUY) '
+                    elif trade_type == 'short':
+                        if carry_signal == 'short':
+                            culprit += 'CarryTrade(short) '
+                        if smc_signal == 'short':
+                            culprit += 'SMC(short) '
+                        culprit += f'Claude(SELL) '
+                    if is_noise:
+                        culprit += '⚠️NOISE_REGIME '
+                    culprit = culprit.strip()
+
+            self.forensic_log.append({
+                'Fecha': str(current_time),
+                'Precio': round(current_price, 2),
+                'EMA200': round(current_ema200, 2),
+                'Regimen': current_regime,
+                'Hurst_Score': round(consensus_signal, 4),
+                'Señal_CarryTrade': carry_signal,
+                'Confianza_CarryTrade': round(carry_conf, 2),
+                'Señal_SMC': smc_signal,
+                'Confianza_SMC': round(smc_conf, 2),
+                'Estructura_SMC': smc_structure,
+                'OB_Tipo_SMC': smc_ob_type,
+                'Decision_Claude': ai_decision,
+                'Consenso_Recomendacion': recommendation,
+                'Confianza_Consenso': round(consensus_result.get('confidence', 0.0), 4),
+                'Posicion_Activa': self.position['type'] if self.position else 'NINGUNA',
+                'Razon_de_Salida': self._last_exit_reason if self._last_exit_reason else '',
+                'PnL_Trade': round(self.trades[-1]['pnl'], 2) if (self._last_exit_reason and self.trades) else '',
+                'Culpable_Perdida': culprit,
+                'FLAG_NOISE': '⚠️ PROHIBIR_OPERAR' if is_noise else '',
+            })
+
         # --- FORCE CLOSE AT END ---
         if self.position:
             last_price = df.iloc[-1]['close']
@@ -201,6 +279,8 @@ class BacktestEngine:
             print("Force closing remaining position at end of simulation.")
             self._close_position(last_price, last_time, "Force Close (End of Data)")
 
+        # ── Save Forensic CSV ───────────────────────────────────────
+        self._save_forensic_log()
         self._generate_report()
 
     def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results, ema200, current_regime, ai_decision="HOLD"):
@@ -221,12 +301,29 @@ class BacktestEngine:
             divergence = module_results.get('yield_anomaly', {}).get('divergence_detected', False)
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
+            # ── TAKE PROFIT MÍNIMO (ATR-Based) ─────────────────────
+            # No cerrar posición ganadora si la ganancia < 1.0 * ATR
+            current_atr = module_results.get('dynamic_hedging', {}).get('current_atr', 0)
+            min_profit_threshold = current_atr * 1.0  # 1 ATR mínimo de ganancia
+            
             if self.position['type'] == 'long':
-                if ai_decision == "SELL" or consensus_signal < -0.50 or (divergence and div_rec == 'short'):
+                unrealized_per_unit = price - self.position['entry_price']
+                unrealized_pnl = unrealized_per_unit * self.position['size']
+                
+                # Si hay ganancia pero es menor al ATR, bloquear cierre por señal
+                if unrealized_per_unit > 0 and unrealized_per_unit < min_profit_threshold and current_atr > 0:
+                    print(f"[{timestamp}] 🔒 TP MÍNIMO: Ganancia ${unrealized_pnl:.2f} < ATR ${min_profit_threshold:.2f} — bloqueando cierre")
+                elif ai_decision == "SELL" or consensus_signal < -0.50 or (divergence and div_rec == 'short'):
                     self._close_position(price, timestamp, f"AI/Reversal (Claude: {ai_decision})")
                     return
+                    
             elif self.position['type'] == 'short':
-                if ai_decision == "BUY" or consensus_signal > 0.50 or (divergence and div_rec == 'long'):
+                unrealized_per_unit = self.position['entry_price'] - price
+                unrealized_pnl = unrealized_per_unit * self.position['size']
+                
+                if unrealized_per_unit > 0 and unrealized_per_unit < min_profit_threshold and current_atr > 0:
+                    print(f"[{timestamp}] 🔒 TP MÍNIMO: Ganancia ${unrealized_pnl:.2f} < ATR ${min_profit_threshold:.2f} — bloqueando cierre")
+                elif ai_decision == "BUY" or consensus_signal > 0.50 or (divergence and div_rec == 'long'):
                     self._close_position(price, timestamp, f"AI/Reversal (Claude: {ai_decision})")
                     return
 
@@ -336,6 +433,9 @@ class BacktestEngine:
             trade_pnl_report = gross_pnl - exit_fee - entry_fee
             net_pnl = trade_pnl_report # Use this for the logs
 
+        # Track exit reason for forensic log
+        self._last_exit_reason = reason
+        
         self.trades.append({
             'entry_time': self.position['entry_time'],
             'exit_time': timestamp,
@@ -392,6 +492,47 @@ Total Trades:   {len(self.trades)}
             plt.grid(True)
             plt.savefig('equity_curve.png')
             print("Chart saved to equity_curve.png")
+
+    def _save_forensic_log(self):
+        """Guarda brutal_analysis_log.csv con diagnóstico forense de cada vela."""
+        if not self.forensic_log:
+            print("[Forensic] No hay datos para guardar.")
+            return
+        
+        csv_path = 'brutal_analysis_log.csv'
+        fieldnames = [
+            'Fecha', 'Precio', 'EMA200', 'Regimen', 'Hurst_Score',
+            'Señal_CarryTrade', 'Confianza_CarryTrade',
+            'Señal_SMC', 'Confianza_SMC', 'Estructura_SMC', 'OB_Tipo_SMC',
+            'Decision_Claude', 'Consenso_Recomendacion', 'Confianza_Consenso',
+            'Posicion_Activa', 'Razon_de_Salida', 'PnL_Trade',
+            'Culpable_Perdida', 'FLAG_NOISE'
+        ]
+        
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(self.forensic_log)
+        
+        # ── Summary Stats ───────────────────────────────────────────
+        total_rows = len(self.forensic_log)
+        noise_rows = sum(1 for r in self.forensic_log if r['FLAG_NOISE'])
+        loss_rows = [r for r in self.forensic_log if r['Culpable_Perdida']]
+        noise_losses = [r for r in loss_rows if '⚠️NOISE_REGIME' in r.get('Culpable_Perdida', '')]
+        
+        print(f"\n{'='*60}")
+        print(f"  BRUTAL ANALYSIS LOG — FORENSIC SUMMARY")
+        print(f"{'='*60}")
+        print(f"  Archivo guardado: {csv_path}")
+        print(f"  Total velas analizadas: {total_rows}")
+        print(f"  Velas en NOISE:         {noise_rows} ({noise_rows/total_rows*100:.1f}%)")
+        print(f"  Trades con pérdida:     {len(loss_rows)}")
+        print(f"  Pérdidas en NOISE:      {len(noise_losses)}")
+        if loss_rows:
+            print(f"\n  --- CULPABLES POR PÉRDIDA ---")
+            for r in loss_rows:
+                print(f"  [{r['Fecha']}] PnL: ${r['PnL_Trade']} | Régimen: {r['Regimen']} | Culpable: {r['Culpable_Perdida']}")
+        print(f"{'='*60}\n")
 
 if __name__ == "__main__":
     eng = BacktestEngine()
