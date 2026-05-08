@@ -24,6 +24,18 @@ if _key:
 else:
     print("ADVERTENCIA: ANTHROPIC_API_KEY no encontrada. Verifica tu archivo .env")
 
+# ── Verificar dependencia ta ────────────────────────────────────────
+try:
+    import ta
+    print("[OK] Libreria 'ta' cargada correctamente.")
+except ModuleNotFoundError:
+    print(
+        "\n[ERROR] No se encontro el modulo 'ta' (Technical Analysis).\n"
+        "Instalalo con:  pip install ta\n"
+    )
+    import sys
+    sys.exit(1)
+
 # Import Modules
 from modulos.smc_ict import SmcIctModule
 from modulos.broker_behavior import BrokerBehaviorModule

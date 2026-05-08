@@ -48,55 +48,67 @@ class CarryTradeModule(BaseAnalysisModule):
             df['st_upper_basic'] = hl2 + (multiplier * atr_st)
             df['st_lower_basic'] = hl2 - (multiplier * atr_st)
             
-            # Final Bands initialization
-            df['st_upper'] = df['st_upper_basic']
-            df['st_lower'] = df['st_lower_basic']
-            df['supertrend'] = df['st_upper'] # Check init
-            df['st_trend'] = 1 # 1: Bull, -1: Bear
+            # Final Bands initialization — dtype=float64 explícito para
+            # evitar errores de np_can_hold_element al asignar escalares.
+            df['st_upper'] = df['st_upper_basic'].astype(np.float64).copy()
+            df['st_lower'] = df['st_lower_basic'].astype(np.float64).copy()
+            df['supertrend'] = np.zeros(len(df), dtype=np.float64)
+            df['st_trend'] = np.ones(len(df), dtype=np.float64)  # 1: Bull, -1: Bear
+            
+            # Semilla inicial: las primeras 10 filas usan los básicos
+            df.iloc[:10, df.columns.get_loc('supertrend')] = df['st_upper_basic'].iloc[:10].values
             
             # Iteración para SuperTrend (necesaria por la lógica recursiva)
-            # Empezamos desde el índice 1 (o window size)
+            # Empezamos desde el índice 10 (tamaño de ventana ATR)
             for i in range(10, len(df)):
-                curr_close = df['close'].iloc[i]
-                prev_close = df['close'].iloc[i-1]
+                curr_close = float(df['close'].iloc[i])
+                prev_close = float(df['close'].iloc[i-1])
                 
-                curr_upper_basic = df['st_upper_basic'].iloc[i]
-                curr_lower_basic = df['st_lower_basic'].iloc[i]
+                curr_upper_basic = float(df['st_upper_basic'].iloc[i])
+                curr_lower_basic = float(df['st_lower_basic'].iloc[i])
                 
-                prev_upper = df['st_upper'].iloc[i-1]
-                prev_lower = df['st_lower'].iloc[i-1]
-                prev_trend = df['st_trend'].iloc[i-1]
+                prev_upper = float(df['st_upper'].iloc[i-1])
+                prev_lower = float(df['st_lower'].iloc[i-1])
+                prev_trend = float(df['st_trend'].iloc[i-1])
+                
+                # Guardia contra NaN en las primeras filas (medias móviles)
+                if np.isnan(curr_upper_basic) or np.isnan(curr_lower_basic):
+                    df.iloc[i, df.columns.get_loc('st_upper')] = prev_upper
+                    df.iloc[i, df.columns.get_loc('st_lower')] = prev_lower
+                    df.iloc[i, df.columns.get_loc('st_trend')] = prev_trend
+                    df.iloc[i, df.columns.get_loc('supertrend')] = prev_upper if prev_trend == -1 else prev_lower
+                    continue
                 
                 # Calculate Final Upper
                 if (curr_upper_basic < prev_upper) or (prev_close > prev_upper):
-                    df.at[df.index[i], 'st_upper'] = curr_upper_basic
+                    df.iloc[i, df.columns.get_loc('st_upper')] = curr_upper_basic
                 else:
-                    df.at[df.index[i], 'st_upper'] = prev_upper
+                    df.iloc[i, df.columns.get_loc('st_upper')] = prev_upper
                     
                 # Calculate Final Lower
                 if (curr_lower_basic > prev_lower) or (prev_close < prev_lower):
-                    df.at[df.index[i], 'st_lower'] = curr_lower_basic
+                    df.iloc[i, df.columns.get_loc('st_lower')] = curr_lower_basic
                 else:
-                    df.at[df.index[i], 'st_lower'] = prev_lower
+                    df.iloc[i, df.columns.get_loc('st_lower')] = prev_lower
                 
                 # Determine Trend and Value
-                curr_upper = df['st_upper'].iloc[i]
-                curr_lower = df['st_lower'].iloc[i]
+                curr_upper = float(df['st_upper'].iloc[i])
+                curr_lower = float(df['st_lower'].iloc[i])
                 
-                if prev_trend == 1: # Was Bullish
+                if prev_trend == 1:  # Was Bullish
                     if curr_close < curr_lower:
-                        df.at[df.index[i], 'st_trend'] = -1
-                        df.at[df.index[i], 'supertrend'] = curr_upper
+                        df.iloc[i, df.columns.get_loc('st_trend')] = -1.0
+                        df.iloc[i, df.columns.get_loc('supertrend')] = curr_upper
                     else:
-                        df.at[df.index[i], 'st_trend'] = 1
-                        df.at[df.index[i], 'supertrend'] = curr_lower
-                else: # Was Bearish
+                        df.iloc[i, df.columns.get_loc('st_trend')] = 1.0
+                        df.iloc[i, df.columns.get_loc('supertrend')] = curr_lower
+                else:  # Was Bearish
                     if curr_close > curr_upper:
-                        df.at[df.index[i], 'st_trend'] = 1
-                        df.at[df.index[i], 'supertrend'] = curr_lower
+                        df.iloc[i, df.columns.get_loc('st_trend')] = 1.0
+                        df.iloc[i, df.columns.get_loc('supertrend')] = curr_lower
                     else:
-                        df.at[df.index[i], 'st_trend'] = -1
-                        df.at[df.index[i], 'supertrend'] = curr_upper
+                        df.iloc[i, df.columns.get_loc('st_trend')] = -1.0
+                        df.iloc[i, df.columns.get_loc('supertrend')] = curr_upper
                         
             # Valores actuales
             current = df.iloc[-1]

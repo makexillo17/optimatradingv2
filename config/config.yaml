@@ -42,8 +42,8 @@ cache:
 
 # ── AI Engine (Claude / Anthropic) ──────────────────────────────────
 ai_engine:
-  model: "claude-3-5-sonnet-20240620"
+  model: "claude-haiku-4-5-20251001"
   max_tokens: 1024
   temperature: 0
   # La API key se lee desde la variable de entorno ANTHROPIC_API_KEY
-  # (ver .env.example para referencia)
+  # (ver .env.example para referencia)
