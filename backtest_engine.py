@@ -5,6 +5,11 @@ import csv
 import os
 import sys
 import time
+import yaml
+
+# Force UTF-8 output on Windows console (prevents emoji encoding errors)
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
 # Ensure root directory is in path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -50,6 +55,7 @@ from modulos.stat_arb import StatArbModule
 from modulos.liquidity_provision import LiquidityProvisionModule
 from modulos.market_making import MarketMakingModule
 from modulos.market_regime import detect_regime
+from modulos.volatility_guard import VolatilityGuardModule
 
 from main.consensus import ConsensusAnalyzer
 from llm_client import ClaudeTrader
@@ -69,23 +75,70 @@ class BacktestEngine:
         self.forensic_log = []  # List of dicts for brutal_analysis_log.csv
         self._last_exit_reason = None  # Tracks most recent exit reason per candle
         
+        # ── Engine Isolation Mode (Benchmarking) ────────────────────
+        self.isolation_enabled = False
+        self.isolation_target = None
+        self.volume_threshold = 1.5
+        self.sweep_lookback_hours = 24
+        self.vix_percentile = 90.0
+        self.break_even_ratio = 1.0
+        self._load_isolation_config()
+        
         # Modules
         self.modules = {
             'smc_ict': SmcIctModule(),
             'broker_behavior': BrokerBehaviorModule(),
             'yield_anomaly': YieldAnomalyModule(),
             'dynamic_hedging': DynamicHedgingModule(),
-            'gap_sniper': GapSniperModule(),
+            'gap_sniper': GapSniperModule(
+                volume_threshold=self.volume_threshold,
+                sweep_lookback_hours=self.sweep_lookback_hours
+            ),
             'volatility_arb': VolatilityArbModule(),
             'carry_trade': CarryTradeModule(),
             'stat_arb': StatArbModule(),
-            'liquidity_provision': LiquidityProvisionModule()
+            'liquidity_provision': LiquidityProvisionModule(),
+            'volatility_guard': VolatilityGuardModule(
+                vix_percentile=self.vix_percentile
+            )
         }
         self.consensus = ConsensusAnalyzer()
 
-        # AI Engine
-        self.trader = ClaudeTrader()
+        # AI Engine (skip in isolation mode — no Claude needed)
+        if not self.isolation_enabled:
+            self.trader = ClaudeTrader()
+        else:
+            self.trader = None
+            print(f"\n{'='*60}")
+            print(f"  🔬 MODO AISLAMIENTO ACTIVO: {self.isolation_target.upper()}")
+            print(f"  ConsensusAnalyzer: BYPASS")
+            print(f"  ClaudeTrader:      BYPASS")
+            print(f"  Motor único:       {self.isolation_target}")
+            print(f"{'='*60}\n")
         
+    def _load_isolation_config(self):
+        """Lee testing_mode.engine_isolation y parámetros de señales desde config.yaml."""
+        config_path = _PROJECT_ROOT / "config" / "config.yaml"
+        try:
+            with open(str(config_path), 'r', encoding='utf-8') as f:
+                cfg = yaml.safe_load(f)
+            testing = cfg.get('ai_engine', {}).get('testing_mode', {})
+            isolation = testing.get('engine_isolation', {})
+            self.isolation_enabled = isolation.get('enabled', False)
+            self.isolation_target = isolation.get('target_engine', 'gap_sniper')
+            
+            # Parametros de senales (configurable desde YAML)
+            self.volume_threshold = testing.get('volume_threshold', 1.5)
+            self.sweep_lookback_hours = testing.get('sweep_lookback_hours', 24)
+            self.vix_percentile = testing.get('vix_percentile', 90.0)
+            
+            inst_logic = cfg.get('ai_engine', {}).get('institutional_logic', {})
+            self.break_even_ratio = inst_logic.get('break_even_ratio', 1.0)
+        except Exception as e:
+            print(f"[Config] No se pudo leer testing_mode: {e} — modo normal.")
+            self.isolation_enabled = False
+            self.isolation_target = None
+
     def load_data(self):
         if not os.path.exists(self.data_file):
             print(f"Error: {self.data_file} not found. Run utils/data_loader.py first.")
@@ -126,67 +179,154 @@ class BacktestEngine:
             # Reset per-candle exit reason tracker
             self._last_exit_reason = None
             
-            # 1. Run Analysis (modules still used for exits / risk)
-            module_results = {}
+            # ══════════════════════════════════════════════════════════
+            # MODO AISLAMIENTO vs MODO NORMAL
+            # ══════════════════════════════════════════════════════════
+            
             market_input = {'market_data': current_df}
-            
-            for name, module in self.modules.items():
-                try:
-                    module_results[name] = module.analyze(market_input)
-                except Exception:
-                    pass
-            
-            # 2. Consensus (kept for exit signals & regime detection)
             current_regime = detect_regime(current_df)
             
-            consensus_result = self.consensus.analyze(module_results, market_regime=current_regime)
-            consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
-            recommendation = consensus_result.get('recommendation', 'NEUTRAL')
-            
-            if 'signal' not in consensus_result:
-                if recommendation == 'long': consensus_signal = 0.8
-                elif recommendation == 'short': consensus_signal = -0.8
+            if self.isolation_enabled:
+                # ── ISOLATION MODE: Solo el motor target ───────────────
+                module_results = {}
+                
+                # Ejecutar SOLO el motor objetivo + dynamic_hedging (para stops)
+                target = self.isolation_target
+                if target in self.modules:
+                    try:
+                        module_results[target] = self.modules[target].analyze(market_input)
+                    except Exception as e:
+                        print(f"[{current_time}] Error en {target}: {e}")
+                
+                # Dynamic hedging siempre se ejecuta (necesario para stops)
+                if target != 'dynamic_hedging' and 'dynamic_hedging' in self.modules:
+                    try:
+                        module_results['dynamic_hedging'] = self.modules['dynamic_hedging'].analyze(market_input)
+                    except Exception:
+                        pass
+                
+                # Volatility Guard siempre se ejecuta (filtro macro)
+                if target != 'volatility_guard' and 'volatility_guard' in self.modules:
+                    try:
+                        module_results['volatility_guard'] = self.modules['volatility_guard'].analyze(market_input)
+                    except Exception:
+                        pass
+                
+                # Convertir señal del motor directamente a decisión de trading
+                engine_result = module_results.get(target, {})
+                engine_rec = engine_result.get('recommendation', 'neutral')
+                engine_conf = engine_result.get('confidence', 0.0)
+                
+                # Mapeo directo: long→BUY, short→SELL, neutral→HOLD
+                if engine_rec == 'long' and engine_conf > 0.0:
+                    ai_decision = "BUY"
+                elif engine_rec == 'short' and engine_conf > 0.0:
+                    ai_decision = "SELL"
+                else:
+                    ai_decision = "HOLD"
+                
+                # -- HTF ALIGNMENT FILTER (EMA200 Hierarchy) --------
+                if ai_decision == "BUY" and current_price < current_ema200:
+                    ai_decision = "HOLD"
+                    if self.verbose:
+                        print(f"[{current_time}] HTF FILTER: BUY bloqueado (precio {current_price:.2f} < EMA200 {current_ema200:.2f})")
+                elif ai_decision == "SELL" and current_price > current_ema200:
+                    ai_decision = "HOLD"
+                    if self.verbose:
+                        print(f"[{current_time}] HTF FILTER: SELL bloqueado (precio {current_price:.2f} > EMA200 {current_ema200:.2f})")
+                
+                # -- VOLATILITY GUARD (Delta-VIX + RSI HTF) ----------
+                vg = module_results.get('volatility_guard', {})
+                if vg.get('force_hold'):
+                    if ai_decision != "HOLD":
+                        print(f"[{current_time}] CRISIS VOL: {ai_decision} bloqueado (Vol Regime: {vg.get('vol_regime')})")
+                    ai_decision = "HOLD"
+                elif ai_decision == "BUY" and vg.get('block_buy'):
+                    print(f"[{current_time}] RSI HTF: BUY bloqueado (RSI={vg.get('daily_rsi', 0):.1f} > {self.modules.get('volatility_guard', VolatilityGuardModule()).rsi_overbought})")
+                    ai_decision = "HOLD"
+                elif ai_decision == "SELL" and vg.get('block_sell'):
+                    print(f"[{current_time}] RSI HTF: SELL bloqueado (RSI={vg.get('daily_rsi', 0):.1f} < {self.modules.get('volatility_guard', VolatilityGuardModule()).rsi_oversold})")
+                    ai_decision = "HOLD"
+                
+                # -- NOISE REVERSION MODE ----------------------------
+                if current_regime == 'NOISE' and target in ('carry_trade',):
+                    ai_decision = "HOLD"
+                
+                # Sin consenso en aislamiento
+                consensus_signal = 0.0
+                recommendation = engine_rec
+                consensus_result = {'confidence': engine_conf, 'signal': 0.0}
+                
+                if self.verbose and i % 24 == 0:
+                    print(f"[{current_time}] 🔬 ISOLATION [{target}]: {engine_rec} (conf: {engine_conf:.2f}) → {ai_decision} | Regime: {current_regime} | HTF: {'BULL' if current_price > current_ema200 else 'BEAR'}")
+                
+            else:
+                # ── MODO NORMAL: Consenso + Claude + Defensas ─────────
+                module_results = {}
+                for name, module in self.modules.items():
+                    try:
+                        module_results[name] = module.analyze(market_input)
+                    except Exception:
+                        pass
+                
+                # 2. Consensus
+                consensus_result = self.consensus.analyze(module_results, market_regime=current_regime)
+                consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
+                recommendation = consensus_result.get('recommendation', 'NEUTRAL')
+                
+                if 'signal' not in consensus_result:
+                    if recommendation == 'long': consensus_signal = 0.8
+                    elif recommendation == 'short': consensus_signal = -0.8
 
-            # 3. AI Decision — ClaudeTrader
-            current_row = {
-                'timestamp': str(current_time),
-                'open': float(current_candle['open']),
-                'high': float(current_candle['high']),
-                'low': float(current_candle['low']),
-                'close': float(current_price),
-                'volume': float(current_candle['volume']),
-                'ema200': float(current_ema200),
-                'regime': current_regime,
-                'consensus_signal': float(consensus_signal),
-            }
+                # 3. AI Decision — ClaudeTrader
+                current_row = {
+                    'timestamp': str(current_time),
+                    'open': float(current_candle['open']),
+                    'high': float(current_candle['high']),
+                    'low': float(current_candle['low']),
+                    'close': float(current_price),
+                    'volume': float(current_candle['volume']),
+                    'ema200': float(current_ema200),
+                    'regime': current_regime,
+                    'consensus_signal': float(consensus_signal),
+                }
 
-            try:
-                ai_decision = self.trader.analyze_market_data(current_row, market_regime=current_regime)
-            except Exception as e:
-                print(f"[{current_time}] Error en ClaudeTrader: {e} — defaulting to HOLD")
-                ai_decision = "HOLD"
+                try:
+                    ai_decision = self.trader.analyze_market_data(current_row, market_regime=current_regime)
+                except Exception as e:
+                    print(f"[{current_time}] Error en ClaudeTrader: {e} — defaulting to HOLD")
+                    ai_decision = "HOLD"
 
-            print(f"[{current_time}] Claude decidio: {ai_decision}")
-            time.sleep(1.5)  # Rate limit: evitar Error 429 de Anthropic
+                print(f"[{current_time}] Claude decidio: {ai_decision}")
+                time.sleep(1.5)  # Rate limit: evitar Error 429 de Anthropic
 
-            # ── VEDA TOTAL: NOISE = HOLD FORZADO ──────────────────────
-            if current_regime == 'NOISE':
-                if ai_decision != "HOLD":
-                    print(f"[{current_time}] 🚫 VEDA NOISE: Claude dijo {ai_decision} → forzado a HOLD")
-                ai_decision = "HOLD"
+                # ── VEDA NOISE: Bloquea tendencia, permite reversión (FVG/Sweep) ──
+                if current_regime == 'NOISE':
+                    # En NOISE, Claude no puede operar tendencia.
+                    # Pero si gap_sniper o smc_ict detectan reversión, el consenso ya los habría filtrado.
+                    # En modo normal, forzamos HOLD total para Claude.
+                    if ai_decision != "HOLD":
+                        print(f"[{current_time}] 🚫 VEDA NOISE: Claude dijo {ai_decision} → forzado a HOLD")
+                    ai_decision = "HOLD"
+                
+                # ── HTF ALIGNMENT FILTER (Normal Mode) ────────────────
+                if ai_decision == "BUY" and current_price < current_ema200:
+                    ai_decision = "HOLD"
+                elif ai_decision == "SELL" and current_price > current_ema200:
+                    ai_decision = "HOLD"
 
-            # --- VERBOSE DEBUG ---
-            if self.verbose and i % 24 == 0:
-                 if abs(consensus_signal) > 0.3 or current_regime == 'NOISE':
-                    trend_status = "BULL" if current_price > current_ema200 else "BEAR"
-                    print(f"[{current_time}] Regime: {current_regime} | Score: {consensus_signal:.2f} | Trend: {trend_status} | SMC: {module_results.get('smc_ict', {}).get('recommendation')}")
+                # --- VERBOSE DEBUG ---
+                if self.verbose and i % 24 == 0:
+                     if abs(consensus_signal) > 0.3 or current_regime == 'NOISE':
+                        trend_status = "BULL" if current_price > current_ema200 else "BEAR"
+                        print(f"[{current_time}] Regime: {current_regime} | Score: {consensus_signal:.2f} | Trend: {trend_status} | SMC: {module_results.get('smc_ict', {}).get('recommendation')}")
 
-            # 4. Risk Params
+            # 4. Risk Params (shared by both modes)
             hedging_info = module_results.get('dynamic_hedging', {})
             stop_long = hedging_info.get('suggested_stop_long', current_price * 0.95)
             stop_short = hedging_info.get('suggested_stop_short', current_price * 1.05)
             
-            # 5. Position Management (entries driven by AI, exits by modules)
+            # 5. Position Management
             self._manage_positions(
                 current_price, current_time, 
                 consensus_signal, recommendation, 
@@ -228,26 +368,31 @@ class BacktestEngine:
             # Identify the culprit module on exit rows
             culprit = ''
             if self._last_exit_reason:
-                # Find which module likely caused a losing trade
                 last_trade = self.trades[-1] if self.trades else None
                 if last_trade and last_trade['pnl'] < 0:
-                    # Determine blame: was the entry signal wrong?
-                    trade_type = last_trade['type']  # 'long' or 'short'
-                    if trade_type == 'long':
-                        # Entered long — who recommended long?
-                        if carry_signal == 'long':
-                            culprit += 'CarryTrade(long) '
-                        if smc_signal == 'long':
-                            culprit += 'SMC(long) '
-                        culprit += f'Claude(BUY) '
-                    elif trade_type == 'short':
-                        if carry_signal == 'short':
-                            culprit += 'CarryTrade(short) '
-                        if smc_signal == 'short':
-                            culprit += 'SMC(short) '
-                        culprit += f'Claude(SELL) '
+                    trade_type = last_trade['type']
+                    trade_dir = 'BUY' if trade_type == 'long' else 'SELL'
+                    
+                    if self.isolation_enabled:
+                        # ── ATRIBUCIÓN DINÁMICA: motor aislado ────────
+                        culprit = f'{self.isolation_target}({trade_dir})'
+                    else:
+                        # ── ATRIBUCIÓN NORMAL: módulos + Claude ───────
+                        if trade_type == 'long':
+                            if carry_signal == 'long':
+                                culprit += 'CarryTrade(long) '
+                            if smc_signal == 'long':
+                                culprit += 'SMC(long) '
+                            culprit += 'Claude(BUY) '
+                        elif trade_type == 'short':
+                            if carry_signal == 'short':
+                                culprit += 'CarryTrade(short) '
+                            if smc_signal == 'short':
+                                culprit += 'SMC(short) '
+                            culprit += 'Claude(SELL) '
+                    
                     if is_noise:
-                        culprit += '⚠️NOISE_REGIME '
+                        culprit += ' ⚠️NOISE_REGIME'
                     culprit = culprit.strip()
 
             self.forensic_log.append({
@@ -270,6 +415,9 @@ class BacktestEngine:
                 'PnL_Trade': round(self.trades[-1]['pnl'], 2) if (self._last_exit_reason and self.trades) else '',
                 'Culpable_Perdida': culprit,
                 'FLAG_NOISE': '⚠️ PROHIBIR_OPERAR' if is_noise else '',
+                'POI_Quality': self.position.get('poi_quality', '') if self.position else (
+                    self.trades[-1].get('poi_quality', '') if (self._last_exit_reason and self.trades) else ''
+                )
             })
 
         # --- FORCE CLOSE AT END ---
@@ -285,9 +433,28 @@ class BacktestEngine:
 
     def _manage_positions(self, price, timestamp, consensus_signal, recommendation, stop_long, stop_short, module_results, ema200, current_regime, ai_decision="HOLD"):
         
-        # ── Check Exits (unchanged — driven by modules & risk params) ──
+        # ── Check Exits ──────────────────────────────────────────────
         if self.position:
-            # STOP LOSS
+            # ── BREAK-EVEN LOGIC (Defensa de Autor) ───────────────────
+            if not self.position.get('break_even_triggered', False):
+                initial_sl = self.position.get('initial_stop_loss', 0)
+                entry_price = self.position['entry_price']
+                if self.position['type'] == 'long' and initial_sl > 0:
+                    risk = entry_price - initial_sl
+                    profit = price - entry_price
+                    if risk > 0 and profit >= (risk * self.break_even_ratio):
+                        self.position['stop_loss'] = entry_price
+                        self.position['break_even_triggered'] = True
+                        print(f"[{timestamp}] 🛡️ BREAK-EVEN TRIGGERED: Profit >= 1:{self.break_even_ratio} R:R. Stop Loss movido a {entry_price:.2f}")
+                elif self.position['type'] == 'short' and initial_sl > 0:
+                    risk = initial_sl - entry_price
+                    profit = entry_price - price
+                    if risk > 0 and profit >= (risk * self.break_even_ratio):
+                        self.position['stop_loss'] = entry_price
+                        self.position['break_even_triggered'] = True
+                        print(f"[{timestamp}] 🛡️ BREAK-EVEN TRIGGERED: Profit >= 1:{self.break_even_ratio} R:R. Stop Loss movido a {entry_price:.2f}")
+
+            # STOP LOSS (always active)
             if self.position['type'] == 'long':
                 if price <= self.position['stop_loss']:
                     self._close_position(price, timestamp, "Stop Loss")
@@ -297,24 +464,32 @@ class BacktestEngine:
                     self._close_position(price, timestamp, "Stop Loss")
                     return
             
-            # TAKE PROFIT / REVERSAL
+            # ── MATHEMATICAL TAKE PROFIT (1:1.5 R:R from Sniper) ────
+            if self.position.get('take_profit'):
+                tp = self.position['take_profit']
+                if self.position['type'] == 'long' and price >= tp:
+                    self._close_position(price, timestamp, "Take Profit (1:1.5 R:R)")
+                    return
+                elif self.position['type'] == 'short' and price <= tp:
+                    self._close_position(price, timestamp, "Take Profit (1:1.5 R:R)")
+                    return
+            
+            # TAKE PROFIT / REVERSAL (signal-based exits)
             divergence = module_results.get('yield_anomaly', {}).get('divergence_detected', False)
             div_rec = module_results.get('yield_anomaly', {}).get('recommendation', 'neutral')
             
             # ── TAKE PROFIT MÍNIMO (ATR-Based) ─────────────────────
-            # No cerrar posición ganadora si la ganancia < 1.0 * ATR
             current_atr = module_results.get('dynamic_hedging', {}).get('current_atr', 0)
-            min_profit_threshold = current_atr * 1.0  # 1 ATR mínimo de ganancia
+            min_profit_threshold = current_atr * 1.0
             
             if self.position['type'] == 'long':
                 unrealized_per_unit = price - self.position['entry_price']
                 unrealized_pnl = unrealized_per_unit * self.position['size']
                 
-                # Si hay ganancia pero es menor al ATR, bloquear cierre por señal
                 if unrealized_per_unit > 0 and unrealized_per_unit < min_profit_threshold and current_atr > 0:
                     print(f"[{timestamp}] 🔒 TP MÍNIMO: Ganancia ${unrealized_pnl:.2f} < ATR ${min_profit_threshold:.2f} — bloqueando cierre")
                 elif ai_decision == "SELL" or consensus_signal < -0.50 or (divergence and div_rec == 'short'):
-                    self._close_position(price, timestamp, f"AI/Reversal (Claude: {ai_decision})")
+                    self._close_position(price, timestamp, f"AI/Reversal ({ai_decision})")
                     return
                     
             elif self.position['type'] == 'short':
@@ -324,13 +499,24 @@ class BacktestEngine:
                 if unrealized_per_unit > 0 and unrealized_per_unit < min_profit_threshold and current_atr > 0:
                     print(f"[{timestamp}] 🔒 TP MÍNIMO: Ganancia ${unrealized_pnl:.2f} < ATR ${min_profit_threshold:.2f} — bloqueando cierre")
                 elif ai_decision == "BUY" or consensus_signal > 0.50 or (divergence and div_rec == 'long'):
-                    self._close_position(price, timestamp, f"AI/Reversal (Claude: {ai_decision})")
+                    self._close_position(price, timestamp, f"AI/Reversal ({ai_decision})")
                     return
 
-        # ── Check Entries (driven by Claude AI decision) ──────────────
-        if not self.position and self.cooldown == 0 and current_regime != 'NOISE':
+        # ── Check Entries ──────────────────────────────────────────────
+        # In isolation mode: allow entries in NOISE (reversion via FVG/Sweep)
+        # In normal mode: NOISE is blocked (Claude veda already forced HOLD)
+        noise_allowed = self.isolation_enabled and self.isolation_target in ('gap_sniper', 'smc_ict')
+        if not self.position and self.cooldown == 0 and (current_regime != 'NOISE' or noise_allowed):
             
-            # LONG ENTRY — Claude says BUY
+            # Get sniper's mathematical TP/SL if available
+            sniper_result = module_results.get('gap_sniper', module_results.get(self.isolation_target, {}))
+            sniper_tp = sniper_result.get('take_profit', 0.0)
+            sniper_sl = sniper_result.get('stop_loss', 0.0)
+            
+            # Determine source label for logging
+            source = self.isolation_target.upper() if self.isolation_enabled else "Claude"
+            
+            # LONG ENTRY
             if ai_decision == "BUY":
                 capital = self.balance
                 size_asset = (capital * 0.99) / price
@@ -343,16 +529,24 @@ class BacktestEngine:
                 
                 self.balance -= (size_asset * price + fee)
                 
+                # Use sniper's SL if available, else fallback to hedging stop
+                entry_sl = sniper_sl if sniper_sl > 0 else stop_long
+                entry_tp = sniper_tp if sniper_tp > 0 else None
+                
                 self.position = {
                     'type': 'long',
                     'entry_price': price,
                     'size': size_asset,
-                    'stop_loss': stop_long,
-                    'entry_time': timestamp
+                    'stop_loss': entry_sl,
+                    'initial_stop_loss': entry_sl,
+                    'take_profit': entry_tp,
+                    'entry_time': timestamp,
+                    'poi_quality': sniper_result.get('poi_quality', 'UNKNOWN')
                 }
-                print(f"[{timestamp}] BUY LONG @ {price:.2f} (Claude: BUY | Regime: {current_regime})")
+                tp_str = f" | TP: {entry_tp:.2f}" if entry_tp else ""
+                print(f"[{timestamp}] BUY LONG @ {price:.2f} ({source}: BUY | Regime: {current_regime} | SL: {entry_sl:.2f}{tp_str} | POI: {self.position['poi_quality']})")
 
-            # SHORT ENTRY — Claude says SELL
+            # SHORT ENTRY
             elif ai_decision == "SELL":
                 equity = self.balance
                 size_asset = (equity * 0.99) / price
@@ -365,14 +559,21 @@ class BacktestEngine:
                 
                 self.balance -= fee 
                 
+                entry_sl = sniper_sl if sniper_sl > 0 else stop_short
+                entry_tp = sniper_tp if sniper_tp > 0 else None
+                
                 self.position = {
                     'type': 'short',
                     'entry_price': price,
                     'size': size_asset,
-                    'stop_loss': stop_short,
-                    'entry_time': timestamp
+                    'stop_loss': entry_sl,
+                    'initial_stop_loss': entry_sl,
+                    'take_profit': entry_tp,
+                    'entry_time': timestamp,
+                    'poi_quality': sniper_result.get('poi_quality', 'UNKNOWN')
                 }
-                print(f"[{timestamp}] SELL SHORT @ {price:.2f} (Claude: SELL | Regime: {current_regime})")
+                tp_str = f" | TP: {entry_tp:.2f}" if entry_tp else ""
+                print(f"[{timestamp}] SELL SHORT @ {price:.2f} ({source}: SELL | Regime: {current_regime} | SL: {entry_sl:.2f}{tp_str} | POI: {self.position['poi_quality']})")
 
     def _close_position(self, price, timestamp, reason):
         if not self.position: return
@@ -437,13 +638,14 @@ class BacktestEngine:
         self._last_exit_reason = reason
         
         self.trades.append({
+            'type': self.position['type'],
             'entry_time': self.position['entry_time'],
             'exit_time': timestamp,
-            'type': self.position['type'],
             'entry_price': entry_price,
             'exit_price': price,
             'pnl': net_pnl,
-            'reason': reason
+            'reason': reason,
+            'poi_quality': self.position.get('poi_quality', 'UNKNOWN')
         })
         
         print(f"[{timestamp}] CLOSE {self.position['type'].upper()} @ {price:.2f} ({reason}). PnL: ${net_pnl:.2f}")
@@ -469,8 +671,13 @@ class BacktestEngine:
             equity_series['peak'] = equity_series['equity'].cummax()
             equity_series['dd'] = (equity_series['peak'] - equity_series['equity']) / equity_series['peak']
             max_dd = equity_series['dd'].max() * 100
+        
+        # ── Cabecera de Aislamiento ─────────────────────────────────
+        isolation_header = ""
+        if self.isolation_enabled:
+            isolation_header = f"\n--- AISLAMIENTO ACTIVO: MODO {self.isolation_target.upper()} ---\n"
             
-        report_str = f"""
+        report_str = f"""{isolation_header}
 --- PERFORMANCE REPORT ---
 Final Balance:  ${self.balance:,.2f}
 Total Return:   {percent_return:.2f}%
@@ -480,18 +687,31 @@ Max Drawdown:   {max_dd:.2f}%
 Total Trades:   {len(self.trades)}
 """
         print(report_str)
-        with open('backtest_report.txt', 'w') as f:
+        
+        # Nombre dinámico de archivo según modo
+        if self.isolation_enabled:
+            report_file = f'backtest_report_ISOLATION_{self.isolation_target}.txt'
+            chart_file = f'equity_curve_ISOLATION_{self.isolation_target}.png'
+        else:
+            report_file = 'backtest_report.txt'
+            chart_file = 'equity_curve.png'
+        
+        with open(report_file, 'w') as f:
             f.write(report_str)
+        print(f"Report saved to {report_file}")
         
         if not equity_series.empty:
             plt.figure(figsize=(10,6))
             plt.plot(equity_series['timestamp'], equity_series['equity'])
-            plt.title(f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f}")
+            title = f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f}"
+            if self.isolation_enabled:
+                title = f"[ISOLATION: {self.isolation_target.upper()}] {title}"
+            plt.title(title)
             plt.xlabel("Date")
             plt.ylabel("Capital ($)")
             plt.grid(True)
-            plt.savefig('equity_curve.png')
-            print("Chart saved to equity_curve.png")
+            plt.savefig(chart_file)
+            print(f"Chart saved to {chart_file}")
 
     def _save_forensic_log(self):
         """Guarda brutal_analysis_log.csv con diagnóstico forense de cada vela."""
@@ -506,7 +726,7 @@ Total Trades:   {len(self.trades)}
             'Señal_SMC', 'Confianza_SMC', 'Estructura_SMC', 'OB_Tipo_SMC',
             'Decision_Claude', 'Consenso_Recomendacion', 'Confianza_Consenso',
             'Posicion_Activa', 'Razon_de_Salida', 'PnL_Trade',
-            'Culpable_Perdida', 'FLAG_NOISE'
+            'Culpable_Perdida', 'FLAG_NOISE', 'POI_Quality'
         ]
         
         with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:

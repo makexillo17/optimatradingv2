@@ -1,0 +1,10 @@
+
+--- AISLAMIENTO ACTIVO: MODO SMC_ICT ---
+
+--- PERFORMANCE REPORT ---
+Final Balance:  $10,000.00
+Total Return:   0.00%
+Win Rate:       0.00%
+Profit Factor:  inf
+Max Drawdown:   0.00%
+Total Trades:   0

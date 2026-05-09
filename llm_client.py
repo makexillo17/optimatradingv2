@@ -48,13 +48,17 @@ SYSTEM_PROMPT = (
     "3. Do NOT include any explanation, punctuation, or additional text.\n"
     "4. BIAS TOWARD HOLD: When in doubt, ALWAYS choose HOLD.\n"
     "5. REGIME AWARENESS:\n"
-    "   - If regime is NOISE or RANGING: You must be 5x MORE STRICT. "
-    "Only output BUY or SELL if the signal is EXTREMELY clear and unambiguous. "
-    "In 90%% of NOISE/RANGING cases, the correct answer is HOLD.\n"
+    "   - If regime is NOISE: En mercados de ruido, tu UNICA MISION es identificar "
+    "falsos movimientos y buscar el RETORNO A LA LIQUIDEZ. Solo opera reversiones, "
+    "NUNCA persigas tendencia. 90%% de las veces = HOLD.\n"
+    "   - If regime is RANGING: Be 5x MORE STRICT. Only mean-reversion signals. "
+    "In 80%% of RANGING cases, the correct answer is HOLD.\n"
     "   - If regime is TRENDING: Normal analysis applies, but still prefer HOLD "
     "over marginal signals.\n"
-    "6. NEVER chase a move. If the price has already moved significantly, say HOLD.\n"
-    "7. Respond with a single word only."
+    "6. HTF ALIGNMENT: If EMA200 is ABOVE price, only SELL is valid. "
+    "If EMA200 is BELOW price, only BUY is valid. Ignore signals against HTF.\n"
+    "7. NEVER chase a move. If the price has already moved significantly, say HOLD.\n"
+    "8. Respond with a single word only."
 )
 
 # Longitud esperada de una API key de Anthropic

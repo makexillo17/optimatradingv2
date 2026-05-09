@@ -4,8 +4,10 @@ import traceback
 from typing import Dict, Any, List, Optional
 import numpy as np
 import pandas as pd
+import yaml
 from datetime import datetime
 from pathlib import Path
+from pydantic import BaseModel
 
 from dotenv import load_dotenv
 
@@ -231,9 +233,45 @@ class OptimatradingMain:
 
 
 # ---------------------------------------------------------------------
+# Config path
+# ---------------------------------------------------------------------
+_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "config.yaml"
+
+# ---------------------------------------------------------------------
+# Pydantic models for API requests
+# ---------------------------------------------------------------------
+class IsolationRequest(BaseModel):
+    target_engine: str = "gap_sniper"
+
+# ---------------------------------------------------------------------
+# Config helpers (Hot-Swap)
+# ---------------------------------------------------------------------
+def _read_config() -> dict:
+    """Lee el config.yaml completo."""
+    with open(str(_CONFIG_PATH), 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+def _write_config(cfg: dict) -> None:
+    """Escribe el config.yaml completo preservando estructura."""
+    with open(str(_CONFIG_PATH), 'w', encoding='utf-8') as f:
+        yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+def _get_available_engines() -> list:
+    """Lista los motores disponibles para aislamiento."""
+    return [
+        "gap_sniper", "smc_ict", "carry_trade", "broker_behavior",
+        "yield_anomaly", "dynamic_hedging", "volatility_arb",
+        "stat_arb", "liquidity_provision", "market_making"
+    ]
+
+# ---------------------------------------------------------------------
 # FastAPI app & endpoints
 # ---------------------------------------------------------------------
-app = FastAPI()
+app = FastAPI(
+    title="OptimaTrading V2 — Control API",
+    description="API de control para el sistema de trading. Incluye hot-swap de modos.",
+    version="2.1.0"
+)
 
 optimatrading = OptimatradingMain()
 
@@ -372,8 +410,131 @@ def test_sniper():
     except Exception as e:
         return {"error": str(e), "traceback": traceback.format_exc()}
 
+
+# =====================================================================
+# HOT-SWAP ENGINE CONTROL ENDPOINTS
+# =====================================================================
+
+@app.get("/engine/status")
+def engine_status():
+    """
+    🔍 Devuelve el estado actual del modo de ejecución.
+    Lee directamente del config.yaml para reflejar el estado persistido.
+    """
+    try:
+        cfg = _read_config()
+        testing = cfg.get('ai_engine', {}).get('testing_mode', {})
+        isolation = testing.get('engine_isolation', {})
+        
+        enabled = isolation.get('enabled', False)
+        target = isolation.get('target_engine', 'gap_sniper')
+        
+        return {
+            "mode": "isolation" if enabled else "consensus",
+            "isolation_enabled": enabled,
+            "target_engine": target if enabled else None,
+            "available_engines": _get_available_engines(),
+            "description": (
+                f"🔬 Aislamiento activo: solo {target}"
+                if enabled
+                else "🤝 Modo consenso: todos los motores + Claude"
+            )
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/engine/mode/isolation")
+def set_isolation_mode(request: IsolationRequest):
+    """
+    🔬 Activa el modo de aislamiento para un motor específico.
+    Hot-swap: el cambio se persiste en config.yaml y se aplica en el próximo backtest.
+    
+    Body JSON:
+        {"target_engine": "gap_sniper"}
+    """
+    target = request.target_engine
+    available = _get_available_engines()
+    
+    if target not in available:
+        return {
+            "error": f"Motor '{target}' no reconocido.",
+            "available_engines": available
+        }
+    
+    try:
+        cfg = _read_config()
+        
+        # Asegurar estructura existe
+        if 'ai_engine' not in cfg:
+            cfg['ai_engine'] = {}
+        if 'testing_mode' not in cfg['ai_engine']:
+            cfg['ai_engine']['testing_mode'] = {}
+        if 'engine_isolation' not in cfg['ai_engine']['testing_mode']:
+            cfg['ai_engine']['testing_mode']['engine_isolation'] = {}
+        
+        cfg['ai_engine']['testing_mode']['engine_isolation']['enabled'] = True
+        cfg['ai_engine']['testing_mode']['engine_isolation']['target_engine'] = target
+        
+        _write_config(cfg)
+        
+        return {
+            "status": "ok",
+            "mode": "isolation",
+            "target_engine": target,
+            "message": f"🔬 Modo aislamiento activado: {target.upper()}. Consenso y Claude DESACTIVADOS.",
+            "next_step": "Ejecuta 'python backtest_engine.py' para correr el benchmark."
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/engine/mode/consensus")
+def set_consensus_mode():
+    """
+    🤝 Restaura el modo consenso (comportamiento normal).
+    Hot-swap: el cambio se persiste en config.yaml inmediatamente.
+    """
+    try:
+        cfg = _read_config()
+        
+        if 'ai_engine' not in cfg:
+            cfg['ai_engine'] = {}
+        if 'testing_mode' not in cfg['ai_engine']:
+            cfg['ai_engine']['testing_mode'] = {}
+        if 'engine_isolation' not in cfg['ai_engine']['testing_mode']:
+            cfg['ai_engine']['testing_mode']['engine_isolation'] = {}
+        
+        cfg['ai_engine']['testing_mode']['engine_isolation']['enabled'] = False
+        
+        _write_config(cfg)
+        
+        return {
+            "status": "ok",
+            "mode": "consensus",
+            "message": "🤝 Modo consenso restaurado. Todos los motores + Claude ACTIVOS.",
+            "next_step": "Ejecuta 'python backtest_engine.py' para correr el backtest completo."
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/engine/engines")
+def list_engines():
+    """
+    📋 Lista todos los motores de análisis disponibles para aislamiento.
+    """
+    engines = _get_available_engines()
+    return {
+        "count": len(engines),
+        "engines": [
+            {"name": e, "endpoint": f"/engine/mode/isolation  (body: {{\"target_engine\": \"{e}\"}})"}  
+            for e in engines
+        ]
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("main.main:app", host="0.0.0.0", port=port, reload=True)
-

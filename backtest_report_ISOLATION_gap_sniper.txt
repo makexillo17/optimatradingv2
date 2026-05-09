@@ -1,0 +1,10 @@
+
+--- AISLAMIENTO ACTIVO: MODO GAP_SNIPER ---
+
+--- PERFORMANCE REPORT ---
+Final Balance:  $10,029.20
+Total Return:   0.29%
+Win Rate:       60.00%
+Profit Factor:  1.13
+Max Drawdown:   2.83%
+Total Trades:   5

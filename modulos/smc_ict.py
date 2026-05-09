@@ -1,7 +1,26 @@
+"""
+SMC ICT Module — Institutional Grade with OB State Machine
+
+Implementa:
+1. Market Structure Detection (BOS/CHoCH via pivot analysis)
+2. Order Block State Machine: UNMITIGATED -> PARTIAL -> MITIGATED -> INVALIDATED
+3. FVG Adjacency Priority (OBs con FVG adyacente tienen prioridad)
+4. Institutional Volume Validation (RVOL >= 1.5x)
+5. Take Profit 1:1.5 R:R matematico
+"""
+
 import numpy as np
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 from .base_module import BaseAnalysisModule
+
+
+# ── ORDER BLOCK STATES ──────────────────────────────────────────────
+OB_UNMITIGATED = "UNMITIGATED"
+OB_PARTIAL     = "PARTIAL_MITIGATION"
+OB_MITIGATED   = "MITIGATED"
+OB_INVALIDATED = "INVALIDATED"
+
 
 class SmcIctModule(BaseAnalysisModule):
     def __init__(self):
@@ -9,272 +28,372 @@ class SmcIctModule(BaseAnalysisModule):
         
     def analyze(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        SMC Institutional Grade Analysis.
-        Detects: Market Structure, Order Blocks, Liquidity Sweeps, and Breakers.
+        SMC Institutional Grade Analysis con OB State Machine.
         """
         try:
             market_data = data.get('market_data')
             
             if market_data is None or not isinstance(market_data, pd.DataFrame):
-                return self.format_result("neutral", 0.0, "Datos insuficientes: No hay DataFrame")
+                return self.format_result("neutral", 0.0, "Datos insuficientes")
             
-            # Necesitamos historial suficiente para detectar estructura
             if len(market_data) < 50:
-                 return self.format_result("neutral", 0.0, f"Datos insuficientes: {len(market_data)} velas (Min 50)")
+                return self.format_result("neutral", 0.0,
+                    f"Datos insuficientes: {len(market_data)} velas (Min 50)")
 
             df = market_data.copy()
             df.reset_index(drop=True, inplace=True)
             
-            # --- 1. IDENTIFICACIÓN DE PIVOTS (SWING POINTS) ---
-            # Ventana: 2 izquierda, 2 derecha
+            # ═══════════════════════════════════════════════════════
+            # 1. PIVOTS (SWING POINTS)
+            # ═══════════════════════════════════════════════════════
+            pivots = self._detect_pivots(df)
+            structure = self._determine_structure(pivots)
             
-            def is_pivot_high(idx):
-                if idx < 2 or idx >= len(df) - 2: return False
-                c = df['high'].iloc[idx]
-                return (c > df['high'].iloc[idx-1] and 
-                        c > df['high'].iloc[idx-2] and 
-                        c > df['high'].iloc[idx+1] and 
-                        c > df['high'].iloc[idx+2])
-
-            def is_pivot_low(idx):
-                if idx < 2 or idx >= len(df) - 2: return False
-                c = df['low'].iloc[idx]
-                return (c < df['low'].iloc[idx-1] and 
-                        c < df['low'].iloc[idx-2] and 
-                        c < df['low'].iloc[idx+1] and 
-                        c < df['low'].iloc[idx+2])
-
-            pivots = [] # List of tuples (index, type, price)
-            for i in range(2, len(df) - 2):
-                if is_pivot_high(i):
-                    pivots.append((i, 'high', df['high'].iloc[i]))
-                elif is_pivot_low(i):
-                    pivots.append((i, 'low', df['low'].iloc[i]))
-            
-            # Definir Estructura de Mercado (Trend)
-            structure = "Neutral"
-            if len(pivots) >= 4:
-                highs = [p[2] for p in pivots if p[1] == 'high']
-                lows = [p[2] for p in pivots if p[1] == 'low']
-                
-                if len(highs) >= 2 and len(lows) >= 2:
-                    if highs[-1] > highs[-2] and lows[-1] > lows[-2]:
-                        structure = "Bullish Trend"
-                    elif highs[-1] < highs[-2] and lows[-1] < lows[-2]:
-                        structure = "Bearish Trend"
-
-            # --- 2. DETECTION DE ORDER BLOCKS & BREAKERS ---
-            
-            # Vamos a identificar los BOS más recientes y encontrar sus OBs
-            # Simplificación: Escaneamos los últimos 2 BOS significativos
-            
-            zones = [] # {'type': 'bull_ob'/'bear_ob'/'bull_breaker'/'bear_breaker', 'top':, 'bottom':, 'quality':}
-            
-            # Iteramos pivots para encontrar quiebres
-            # Buscamos un Pivot High que haya sido roto por el precio posteriormente
-            
-            # BUSCAR BULLISH OBs (Originan rotura de Highs)
-            # 1. Encontrar Pivot High
-            # 2. Encontrar si el precio cerró por encima después
-            # 3. Encontrar el punto más bajo entre el Pivot y la rotura -> Ese es el Swing Low
-            # 4. En ese Swing Low, la última vela bajista es el OB.
-            
-            # Estrategia simplificada:
-            # Tomamos los últimos pivots y veremos si generan zonas activas
-            
-            # Analizar últimos 50 periodos
-            subset = df.iloc[-50:]
-            
-            # Lógica ad-hoc simple para demostración institucional:
-            # Detectar OBs "sin mitigar"
-            # Un OB es válido si el precio no lo ha cruzado invalidándolo completamente
-            
-            # Función auxiliar para crear OB
-            def find_ob_candle(start_idx, end_idx, direction):
-                # direction 'bull': buscamos última vela bajista (red) en el fondo
-                # direction 'bear': buscamos última vela alcista (green) en el tope
-                slice_df = df.iloc[start_idx:end_idx+1]
-                if direction == 'bull':
-                    # Buscar el Low más bajo
-                    min_idx = slice_df['low'].idxmin()
-                    # Buscar desde min_idx hacia atrás la vela roja más cercana (o la misma si es roja)
-                    # O típicamente: la vela roja ANTES del movimiento impulsivo. 
-                    # Simplificación: Usamos la vela del mínimo si es roja, o la anterior.
-                    return min_idx
-                else:
-                    max_idx = slice_df['high'].idxmax()
-                    return max_idx
-
-            # Generación de zonas basada en pivots recientes
-            # Recorremos pivots
-            for i in range(len(pivots) - 1):
-                p_prev = pivots[i]
-                
-                # Check BULLISH BOS: Un Pivot High previo es roto al alza
-                if p_prev[1] == 'high':
-                    # Buscar si el precio rompió este High despues de p_prev[0]
-                    # Buscamos cierre > p_prev[2]
-                    break_candles = df[(df.index > p_prev[0]) & (df['close'] > p_prev[2])]
-                    if not break_candles.empty:
-                        break_idx = break_candles.index[0]
-                        
-                        # El movimiento se originó en el mínimo entre p_prev y break_idx
-                        swing_low_range = df.iloc[p_prev[0]:break_idx]
-                        swing_low_idx = swing_low_range['low'].idxmin()
-                        
-                        # Definir Bullish OB: La vela en swing_low_idx
-                        # (Simplificación ICT: La vela create el Swing suele contener el OB)
-                        ob_top = df['high'].iloc[swing_low_idx]
-                        ob_bottom = df['low'].iloc[swing_low_idx]
-                        
-                        # Sweep Quality?
-                        # Si este low rompió un pivot low anterior
-                        is_sweep = False
-                        prev_lows = [p for p in pivots if p[1] == 'low' and p[0] < swing_low_idx]
-                        if prev_lows and df['low'].iloc[swing_low_idx] < prev_lows[-1][2]:
-                            is_sweep = True
-                            
-                        zones.append({
-                            'type': 'bull_ob',
-                            'top': ob_top,
-                            'bottom': ob_bottom,
-                            'idx': swing_low_idx,
-                            'quality': 'high' if is_sweep else 'normal'
-                        })
-
-                # Check BEARISH BOS: Un Pivot Low previo es roto a la baja
-                if p_prev[1] == 'low':
-                    break_candles = df[(df.index > p_prev[0]) & (df['close'] < p_prev[2])]
-                    if not break_candles.empty:
-                        break_idx = break_candles.index[0]
-                        
-                        swing_high_range = df.iloc[p_prev[0]:break_idx]
-                        swing_high_idx = swing_high_range['high'].idxmax()
-                        
-                        ob_top = df['high'].iloc[swing_high_idx]
-                        ob_bottom = df['low'].iloc[swing_high_idx]
-                        
-                        is_sweep = False
-                        prev_highs = [p for p in pivots if p[1] == 'high' and p[0] < swing_high_idx]
-                        if prev_highs and df['high'].iloc[swing_high_idx] > prev_highs[-1][2]:
-                            is_sweep = True
-
-                        zones.append({
-                            'type': 'bear_ob',
-                            'top': ob_top,
-                            'bottom': ob_bottom,
-                            'idx': swing_high_idx,
-                            'quality': 'high' if is_sweep else 'normal'
-                        })
-
-            # --- 3. Lógica de BREAKERS y VALIDACIÓN ---
-            
-            # Analizar estado actual de las zonas (Active vs Broken)
-            current_close = df['close'].iloc[-1]
-            active_zones = []
-            
-            for z in zones:
-                # Verificar si la zona fue invalidada (rota)
-                # Bullish OB roto a la baja -> Bearish Breaker
-                if z['type'] == 'bull_ob':
-                    # Si el precio cerró por debajo del bottom DESPUES de la creación
-                    # Buscamos cierres < bottom con indice > idx
-                    breaks = df[(df.index > z['idx']) & (df['close'] < z['bottom'])]
-                    if not breaks.empty:
-                        # Se convierte en Bearish Breaker
-                        z['type'] = 'bear_breaker'
-                    
-                    # Validar relevancia: solo nos importa si es reciente (ej: ultimas 100 velas)
-                    if z['idx'] > len(df) - 100:
-                        active_zones.append(z)
-                        
-                elif z['type'] == 'bear_ob':
-                    # Si precio cerró por encima del top -> Bullish Breaker
-                    breaks = df[(df.index > z['idx']) & (df['close'] > z['top'])]
-                    if not breaks.empty:
-                        z['type'] = 'bull_breaker'
-                    
-                    if z['idx'] > len(df) - 100:
-                        active_zones.append(z)
-
-            # --- 4. GENERACIÓN DE SEÑAL ---
-            
-            # --- VOLUME VALIDATION (Institutional Confirmation) ---
-            # Calcular RVOL: Volumen relativo al promedio de 20 períodos
+            # ═══════════════════════════════════════════════════════
+            # 2. ORDER BLOCK DETECTION + STATE MACHINE
+            # ═══════════════════════════════════════════════════════
             has_volume = 'volume' in df.columns and df['volume'].sum() > 0
             if has_volume:
                 vol_ma_20 = df['volume'].rolling(window=20).mean()
             else:
                 vol_ma_20 = pd.Series([1.0] * len(df), index=df.index)
+
+            raw_zones = self._detect_order_blocks(df, pivots, has_volume, vol_ma_20)
+            
+            # Detect FVGs in data for adjacency scoring
+            fvg_levels = self._detect_fvgs(df)
+            
+            # Apply state machine + FVG adjacency
+            active_zones = self._apply_state_machine(df, raw_zones, fvg_levels)
+            
+            # ═══════════════════════════════════════════════════════
+            # 3. SIGNAL GENERATION
+            # ═══════════════════════════════════════════════════════
+            current_close = df['close'].iloc[-1]
+            current_price = current_close
             
             signal = "neutral"
             confidence = 0.0
-            justification = f"Estructura: {structure}. Sin zonas de interacción."
+            justification = f"Estructura: {structure}. Sin zonas activas."
             nearest_ob_type = "None"
             nearest_ob_price = 0.0
-            ob_rvol = 0.0  # Diagnóstico: RVOL del OB que generó la señal
+            ob_rvol = 0.0
+            ob_state = "N/A"
+            has_fvg = False
+            tp_price = 0.0
+            sl_price = 0.0
             
-            # Ver si el precio actual está DENTRO de alguna zona activa
-            for z in reversed(active_zones): # Prioridad a las más recientes
+            # Sort: Quality Score first (FVG-adjacent), then UNMITIGATED, then most recent
+            active_zones.sort(key=lambda z: (
+                -z.get('quality_score', 0.5),           # FVG priority (1.0 vs 0.5)
+                0 if z['state'] == OB_UNMITIGATED else 1, # Fresh blocks first
+                -z['idx']                                  # Most recent first
+            ))
+            
+            for z in active_zones:
+                # Skip mitigated (invalidated are already removed in state machine)
+                if z['state'] in (OB_MITIGATED, OB_INVALIDATED):
+                    continue
                 
-                # ── FILTRO DE VOLUMEN INSTITUCIONAL ──────────────────
-                # Solo validar OBs con volumen >= 1.5x el promedio de 20 períodos
-                if has_volume:
-                    ob_idx = z['idx']
-                    ob_volume = df['volume'].iloc[ob_idx]
-                    ob_vol_ma = vol_ma_20.iloc[ob_idx]
-                    if pd.notna(ob_vol_ma) and ob_vol_ma > 0:
-                        zone_rvol = ob_volume / ob_vol_ma
-                    else:
-                        zone_rvol = 0.0
-                    
-                    if zone_rvol < 1.5:
-                        continue  # OB sin volumen institucional → fantasma, ignorar
-                else:
-                    zone_rvol = 0.0  # Sin datos de volumen, no filtrar
-                
-                # Verificar cercanía o toque
-                # Bullish Zone (OB or Breaker)
+                # Check if price is in zone
                 if z['type'] in ['bull_ob', 'bull_breaker']:
-                    # Precio dentro o muy cerca del rango de la zona
-                    # Tolerancia superior (podemos entrar un poco antes)
                     if z['bottom'] <= current_close <= (z['top'] * 1.001):
                         signal = "long"
-                        confidence = 0.85
-                        quality_msg = " (SWEEP)" if z.get('quality') == 'high' else ""
-                        breaker_msg = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
-                        nearest_ob_type = f"Bullish {breaker_msg}"
+                        fvg_tag = " +FVG" if z.get('has_fvg') else ""
+                        state_tag = z['state']
+                        quality_tag = " (SWEEP)" if z.get('quality') == 'high' else ""
+                        breaker_tag = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
+                        
+                        # Confidence based on state + FVG
+                        if z.get('has_fvg') and z['state'] == OB_UNMITIGATED:
+                            confidence = 0.95  # Best case
+                        elif z['state'] == OB_UNMITIGATED:
+                            confidence = 0.85
+                        else:  # PARTIAL
+                            confidence = 0.70
+                        
+                        nearest_ob_type = f"Bullish {breaker_tag}"
                         nearest_ob_price = z['top']
-                        ob_rvol = zone_rvol
+                        ob_rvol = z.get('rvol', 0.0)
+                        ob_state = state_tag
+                        has_fvg = z.get('has_fvg', False)
                         
-                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. RVOL: {zone_rvol:.2f}. Estructura: {structure}."
-                        break # Encontramos la más relevante
+                        # TP/SL matematico (1:1.5)
+                        sl_price = z['bottom'] - (z['top'] - z['bottom']) * 0.1  # SL bajo el OB
+                        sl_distance = current_close - sl_price
+                        tp_price = current_close + (sl_distance * 1.5)
                         
-                # Bearish Zone
+                        justification = (
+                            f"Precio en {nearest_ob_type}{quality_tag}{fvg_tag}. "
+                            f"Estado: {state_tag}. RVOL: {zone_rvol:.2f}. "
+                            f"Estructura: {structure}. "
+                            f"TP: {tp_price:.2f} | SL: {sl_price:.2f} (1:1.5)"
+                        )
+                        break
+                        
                 elif z['type'] in ['bear_ob', 'bear_breaker']:
                     if (z['bottom'] * 0.999) <= current_close <= z['top']:
                         signal = "short"
-                        confidence = 0.85
-                        quality_msg = " (SWEEP)" if z.get('quality') == 'high' else ""
-                        breaker_msg = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
-                        nearest_ob_type = f"Bearish {breaker_msg}"
-                        nearest_ob_price = z['bottom']
-                        ob_rvol = zone_rvol
+                        fvg_tag = " +FVG" if z.get('has_fvg') else ""
+                        state_tag = z['state']
+                        quality_tag = " (SWEEP)" if z.get('quality') == 'high' else ""
+                        breaker_tag = "BREAKER" if 'breaker' in z['type'] else "ORDER BLOCK"
                         
-                        justification = f"Precio en Zona {nearest_ob_type}{quality_msg}. RVOL: {zone_rvol:.2f}. Estructura: {structure}."
+                        if z.get('has_fvg') and z['state'] == OB_UNMITIGATED:
+                            confidence = 0.95
+                        elif z['state'] == OB_UNMITIGATED:
+                            confidence = 0.85
+                        else:
+                            confidence = 0.70
+                        
+                        nearest_ob_type = f"Bearish {breaker_tag}"
+                        nearest_ob_price = z['bottom']
+                        ob_rvol = z.get('rvol', 0.0)
+                        ob_state = state_tag
+                        has_fvg = z.get('has_fvg', False)
+                        
+                        sl_price = z['top'] + (z['top'] - z['bottom']) * 0.1
+                        sl_distance = sl_price - current_close
+                        tp_price = current_close - (sl_distance * 1.5)
+                        
+                        justification = (
+                            f"Precio en {nearest_ob_type}{quality_tag}{fvg_tag}. "
+                            f"Estado: {state_tag}. RVOL: {zone_rvol:.2f}. "
+                            f"Estructura: {structure}. "
+                            f"TP: {tp_price:.2f} | SL: {sl_price:.2f} (1:1.5)"
+                        )
                         break
 
-            # Resultado final
             result = self.format_result(signal, confidence, justification)
             result.update({
                 'structure': structure,
                 'nearest_ob_type': nearest_ob_type,
                 'nearest_ob_price': float(nearest_ob_price),
                 'ob_rvol': float(ob_rvol),
-                'pivots_count': len(pivots)
+                'ob_state': ob_state,
+                'has_fvg_adjacency': has_fvg,
+                'poi_quality': 'INSTITUTIONAL_OB' if signal != 'neutral' else 'RETAIL_SIGNAL',
+                'take_profit': float(tp_price),
+                'stop_loss': float(sl_price),
+                'pivots_count': len(pivots),
+                'active_zones_count': len([z for z in active_zones if z['state'] != OB_INVALIDATED])
             })
-            
             return result
             
         except Exception as e:
-            return self.format_result("neutral", 0.0, f"Error en análisis SMC: {str(e)}")
+            return self.format_result("neutral", 0.0, f"Error en SMC: {str(e)}")
+    
+    # ─── HELPERS ────────────────────────────────────────────────────
+    
+    def _detect_pivots(self, df: pd.DataFrame) -> List[Tuple]:
+        """Detecta swing highs/lows con ventana 2-2."""
+        pivots = []
+        for i in range(2, len(df) - 2):
+            h = df['high'].iloc[i]
+            if (h > df['high'].iloc[i-1] and h > df['high'].iloc[i-2] and
+                h > df['high'].iloc[i+1] and h > df['high'].iloc[i+2]):
+                pivots.append((i, 'high', h))
+            
+            l = df['low'].iloc[i]
+            if (l < df['low'].iloc[i-1] and l < df['low'].iloc[i-2] and
+                l < df['low'].iloc[i+1] and l < df['low'].iloc[i+2]):
+                pivots.append((i, 'low', l))
+        return pivots
+    
+    def _determine_structure(self, pivots: List[Tuple]) -> str:
+        """Determina tendencia basada en highs/lows."""
+        if len(pivots) < 4:
+            return "Neutral"
+        highs = [p[2] for p in pivots if p[1] == 'high']
+        lows = [p[2] for p in pivots if p[1] == 'low']
+        if len(highs) >= 2 and len(lows) >= 2:
+            if highs[-1] > highs[-2] and lows[-1] > lows[-2]:
+                return "Bullish Trend"
+            elif highs[-1] < highs[-2] and lows[-1] < lows[-2]:
+                return "Bearish Trend"
+        return "Neutral"
+    
+    def _detect_order_blocks(self, df: pd.DataFrame, pivots: List[Tuple], has_volume: bool, vol_ma_20: pd.Series) -> List[Dict]:
+        """Detecta Order Blocks raw (sin estado). Filtra por volumen institucional (Retail Noise ignorado)."""
+        zones = []
+        
+        for i in range(len(pivots) - 1):
+            p_prev = pivots[i]
+            
+            # Bullish BOS: pivot high roto al alza
+            if p_prev[1] == 'high':
+                break_candles = df[(df.index > p_prev[0]) & (df['close'] > p_prev[2])]
+                if not break_candles.empty:
+                    break_idx = break_candles.index[0]
+                    swing_range = df.iloc[p_prev[0]:break_idx]
+                    if len(swing_range) > 0:
+                        swing_low_idx = swing_range['low'].idxmin()
+                        
+                        # --- VOLUME VALIDATION (Institutional Filter) ---
+                        if has_volume:
+                            ob_volume = df['volume'].iloc[swing_low_idx]
+                            ob_vol_ma = vol_ma_20.iloc[swing_low_idx]
+                            zone_rvol = (ob_volume / ob_vol_ma) if (pd.notna(ob_vol_ma) and ob_vol_ma > 0) else 0.0
+                            if zone_rvol < 1.5:
+                                continue  # Ignorar por Retail Noise
+                        else:
+                            zone_rvol = 0.0
+
+                        is_sweep = False
+                        prev_lows = [p for p in pivots if p[1] == 'low' and p[0] < swing_low_idx]
+                        if prev_lows and df['low'].iloc[swing_low_idx] < prev_lows[-1][2]:
+                            is_sweep = True
+                        
+                        zones.append({
+                            'type': 'bull_ob',
+                            'top': df['high'].iloc[swing_low_idx],
+                            'bottom': df['low'].iloc[swing_low_idx],
+                            'idx': swing_low_idx,
+                            'quality': 'high' if is_sweep else 'normal',
+                            'state': OB_UNMITIGATED,
+                            'mitigation_count': 0,
+                            'rvol': float(zone_rvol)
+                        })
+            
+            # Bearish BOS: pivot low roto a la baja
+            if p_prev[1] == 'low':
+                break_candles = df[(df.index > p_prev[0]) & (df['close'] < p_prev[2])]
+                if not break_candles.empty:
+                    break_idx = break_candles.index[0]
+                    swing_range = df.iloc[p_prev[0]:break_idx]
+                    if len(swing_range) > 0:
+                        swing_high_idx = swing_range['high'].idxmax()
+                        
+                        # --- VOLUME VALIDATION (Institutional Filter) ---
+                        if has_volume:
+                            ob_volume = df['volume'].iloc[swing_high_idx]
+                            ob_vol_ma = vol_ma_20.iloc[swing_high_idx]
+                            zone_rvol = (ob_volume / ob_vol_ma) if (pd.notna(ob_vol_ma) and ob_vol_ma > 0) else 0.0
+                            if zone_rvol < 1.5:
+                                continue  # Ignorar por Retail Noise
+                        else:
+                            zone_rvol = 0.0
+
+                        is_sweep = False
+                        prev_highs = [p for p in pivots if p[1] == 'high' and p[0] < swing_high_idx]
+                        if prev_highs and df['high'].iloc[swing_high_idx] > prev_highs[-1][2]:
+                            is_sweep = True
+                        
+                        zones.append({
+                            'type': 'bear_ob',
+                            'top': df['high'].iloc[swing_high_idx],
+                            'bottom': df['low'].iloc[swing_high_idx],
+                            'idx': swing_high_idx,
+                            'quality': 'high' if is_sweep else 'normal',
+                            'state': OB_UNMITIGATED,
+                            'mitigation_count': 0,
+                            'rvol': float(zone_rvol)
+                        })
+        
+        return zones
+    
+    def _detect_fvgs(self, df: pd.DataFrame) -> List[Dict]:
+        """Detecta Fair Value Gaps en los datos."""
+        fvgs = []
+        for i in range(2, len(df)):
+            # Bullish FVG: low[i] > high[i-2]
+            if df['low'].iloc[i] > df['high'].iloc[i-2]:
+                fvgs.append({
+                    'type': 'bullish',
+                    'top': df['low'].iloc[i],
+                    'bottom': df['high'].iloc[i-2],
+                    'idx': i
+                })
+            # Bearish FVG: high[i] < low[i-2]
+            elif df['high'].iloc[i] < df['low'].iloc[i-2]:
+                fvgs.append({
+                    'type': 'bearish',
+                    'top': df['low'].iloc[i-2],
+                    'bottom': df['high'].iloc[i],
+                    'idx': i
+                })
+        return fvgs
+    
+    def _apply_state_machine(self, df: pd.DataFrame, zones: List[Dict],
+                              fvg_levels: List[Dict]) -> List[Dict]:
+        """
+        Aplica la maquina de estados a cada Order Block:
+        UNMITIGATED -> PARTIAL -> MITIGATED -> INVALIDATED
+        
+        Tambien marca bloques con FVG adyacente.
+        """
+        active = []
+        current_close = df['close'].iloc[-1]
+        
+        for z in zones:
+            # Solo zonas recientes (ultimas 100 velas)
+            if z['idx'] <= len(df) - 100:
+                continue
+            
+            ob_top = z['top']
+            ob_bottom = z['bottom']
+            ob_mid = (ob_top + ob_bottom) / 2  # Mean Threshold (50%)
+            
+            # ── STATE MACHINE ─────────────────────────────────────
+            mitigation_count = 0
+            invalidated = False
+            
+            # Scan all candles AFTER the OB was created
+            for j in range(z['idx'] + 1, len(df)):
+                candle_high = df['high'].iloc[j]
+                candle_low = df['low'].iloc[j]
+                candle_close = df['close'].iloc[j]
+                candle_body_top = max(df['open'].iloc[j], candle_close)
+                candle_body_bottom = min(df['open'].iloc[j], candle_close)
+                
+                if z['type'] == 'bull_ob':
+                    # Mecha toca el OB = mitigation event
+                    if candle_low <= ob_top:
+                        if candle_low <= ob_mid:
+                            mitigation_count += 1
+                        # INVALIDATED: body close below the OB bottom
+                        if candle_body_bottom < ob_bottom:
+                            invalidated = True
+                            break
+                
+                elif z['type'] == 'bear_ob':
+                    if candle_high >= ob_bottom:
+                        if candle_high >= ob_mid:
+                            mitigation_count += 1
+                        if candle_body_top > ob_top:
+                            invalidated = True
+                            break
+            
+            # Determine state
+            if invalidated:
+                # Delete invalidated block from active memory
+                continue
+            elif mitigation_count == 0:
+                z['state'] = OB_UNMITIGATED
+            elif mitigation_count == 1:
+                z['state'] = OB_PARTIAL
+            else:
+                z['state'] = OB_MITIGATED  # Touched 2+ times = used up
+            
+            z['mitigation_count'] = mitigation_count
+            
+            # ── FVG ADJACENCY CHECK ───────────────────────────────
+            # Check if any FVG is within 1-3 candles of the OB
+            z['has_fvg'] = False
+            z['quality_score'] = 0.5
+            for fvg in fvg_levels:
+                distance = fvg['idx'] - z['idx']
+                if 1 <= distance <= 3:
+                    # Direction match
+                    if z['type'] in ('bull_ob',) and fvg['type'] == 'bullish':
+                        z['has_fvg'] = True
+                        z['quality_score'] = 1.0
+                        break
+                    elif z['type'] in ('bear_ob',) and fvg['type'] == 'bearish':
+                        z['has_fvg'] = True
+                        z['quality_score'] = 1.0
+                        break
+            
+            active.append(z)
+        
+        return active

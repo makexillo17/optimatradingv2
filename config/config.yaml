@@ -1,49 +1,59 @@
 apis:
   binance:
-    api_key: "XmLESrJh1AbAlYOmypUCC9RJINw1HSQ6RXn5Tv5QJSKFjTulEt3udYDK6f25pdOE
-"
-    api_secret: "nLsWOjlQCejtUovFtKN2tETBuVPZELDFcsAKDCPJztVDtTVbYKV6UEyeX4EmxDHZ"
+    api_key: XmLESrJh1AbAlYOmypUCC9RJINw1HSQ6RXn5Tv5QJSKFjTulEt3udYDK6f25pdOE
+    api_secret: nLsWOjlQCejtUovFtKN2tETBuVPZELDFcsAKDCPJztVDtTVbYKV6UEyeX4EmxDHZ
     testnet: false
     timeout: 10000
-  
   finnhub:
-    api_key: "d0q0se1r01qmj4nhbvf0d0q0se1r01qmj4nhbvfg"
+    api_key: d0q0se1r01qmj4nhbvf0d0q0se1r01qmj4nhbvfg
     sandbox: false
     timeout: 5000
-  
   polygon:
-    api_key: "u9sgnjo7UolwDyuaaO3MvG5ID2EoljrB"
+    api_key: u9sgnjo7UolwDyuaaO3MvG5ID2EoljrB
     sandbox: false
     timeout: 5000
-  
   twelvedata:
-    api_key: "7b8c4b9f362343268e516d412eee55d0"
+    api_key: 7b8c4b9f362343268e516d412eee55d0
     timeout: 5000
-  
   alphavantage:
-    api_key: "5B7F2RFD6B09AWOU"
+    api_key: 5B7F2RFD6B09AWOU
     timeout: 5000
-  
   ninjaapis:
-    api_key: "28b5lZ/fTAk2Pz+PW3VgiQ==Tg61OtIfiTYJP1aX"
+    api_key: 28b5lZ/fTAk2Pz+PW3VgiQ==Tg61OtIfiTYJP1aX
     timeout: 5000
-
 logging:
   level: INFO
   file: logs/optimatrading.log
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 cache:
   type: redis
   host: localhost
   port: 6379
   db: 0
-  ttl: 3600  # 1 hour in seconds
+  ttl: 3600
 
-# ── AI Engine (Claude / Anthropic) ──────────────────────────────────
+# -- AI Engine --------------------------------------------------------
 ai_engine:
-  model: "claude-haiku-4-5-20251001"
+  model: claude-haiku-4-5-20251001
   max_tokens: 1024
   temperature: 0
-  # La API key se lee desde la variable de entorno ANTHROPIC_API_KEY
-  # (ver .env.example para referencia)
+
+  # -- Institutional Logic ---------------------------------------------
+  institutional_logic:
+    ob_volume_factor: 1.5
+    break_even_ratio: 1.0
+
+  # -- Testing / Benchmarking ------------------------------------------
+  testing_mode:
+    # Parametros de senales institucionales
+    volume_threshold: 1.5        # RVOL minimo para validar FVG/OB
+    sweep_lookback_hours: 24     # Ventana para Liquidity Sweeps
+    wvdi_threshold: 1.5          # WVDI minimo para validar sweep
+    vix_percentile: 90.0         # Percentil Delta-VIX para bloqueo de crisis
+    rsi_overbought: 80.0         # RSI HTF > este valor = bloquear BUY
+    rsi_oversold: 20.0           # RSI HTF < este valor = bloquear SELL
+
+    # Aislamiento de motores
+    engine_isolation:
+      enabled: true   # true = aislamiento, false = consenso normal
+      target_engine: smc_ict  # Opciones: gap_sniper, smc_ict, carry_trade, etc.
