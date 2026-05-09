@@ -62,8 +62,13 @@ class ConsensusAnalyzer:
                 smc_rec = smc_res.get('recommendation', 'neutral')
                 smc_just = smc_res.get('justification', '').upper()
                 smc_details = str(smc_res.get('details', {})).upper()
+                poi_quality = smc_res.get('poi_quality', '')
                 
-                is_institutional_setup = "SWEEP" in smc_just or "ORDER BLOCK" in smc_just or "SWEEP" in smc_details or "ORDER BLOCK" in smc_details
+                is_institutional_setup = (
+                    "SWEEP" in smc_just or "ORDER BLOCK" in smc_just or 
+                    "SWEEP" in smc_details or "ORDER BLOCK" in smc_details or
+                    poi_quality in ('SWEEP', 'INSTITUTIONAL_OB')
+                )
                 
                 if is_institutional_setup and smc_rec != 'neutral':
                     if 'carry_trade' in module_results:
@@ -126,12 +131,18 @@ class ConsensusAnalyzer:
                     bias_text = "Bajista"
                     justification_text = f"🐻 Convicción Neta Bajista ({final_confidence:.1%}). Sesgo vendedor dominante."
             
-            # Verificar confirmación de SMC para reforzar o debilitar (opcional, pero buena práctica mantener contexto)
+            # Verificar confirmación de SMC para reforzar o debilitar
             smc_trend = "neutral"
             if 'smc_ict' in module_results:
-                smc_rec = module_results['smc_ict'].get('recommendation', 'neutral')
+                smc_res = module_results['smc_ict']
+                smc_rec = smc_res.get('recommendation', 'neutral')
+                poi_quality = smc_res.get('poi_quality', '')
+                
                 if smc_rec == recommendation and final_confidence > 0.15:
                     justification_text += " Confirmado por Estructura (SMC)."
+                    
+                if poi_quality in ('SWEEP', 'INSTITUTIONAL_OB'):
+                    justification_text += " 💎 ARQUITECTURA DE AUTOR: Setup institucional limpio detectado. PRIORIZAR ESTE TRADE PARA MAXIMIZAR SHARPE RATIO."
             
             return {
                 'recommendation': recommendation,

@@ -1,12 +1,11 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import csv
 import os
-import sys
-import time
-import yaml
 
+def refactor_engine():
+    with open('backtest_engine.py', 'r', encoding='utf-8') as f:
+        content = f.read()
+        
+    # 1. Imports and Event class
+    import_addition = """
 from dataclasses import dataclass, field
 from queue import PriorityQueue
 from datetime import timedelta
@@ -23,105 +22,11 @@ class Event:
     priority: int
     event_type: int = field(compare=False)
     data: dict = field(compare=False, default_factory=dict)
-
-
-# Force UTF-8 output on Windows console (prevents emoji encoding errors)
-if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-
-# Ensure root directory is in path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-# ── Debug: verificar carga de .env ──────────────────────────────────
-from dotenv import load_dotenv
-from pathlib import Path
-
-# Ruta absoluta al .env del proyecto (evita problemas con espacios en ruta)
-_PROJECT_ROOT = Path(r"c:\Users\chump\OneDrive\proyecto personal")
-_env_path = _PROJECT_ROOT / ".env"
-
-print(f"Buscando .env en: {_env_path}  (existe: {_env_path.exists()})")
-load_dotenv(dotenv_path=str(_env_path), override=True)
-
-_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-if _key:
-    print(f"Llave encontrada: {_key[:5]}...{_key[-4:]}  (len={len(_key)})")
-else:
-    print("ADVERTENCIA: ANTHROPIC_API_KEY no encontrada. Verifica tu archivo .env")
-
-# ── Verificar dependencia ta ────────────────────────────────────────
-try:
-    import ta
-    print("[OK] Libreria 'ta' cargada correctamente.")
-except ModuleNotFoundError:
-    print(
-        "\n[ERROR] No se encontro el modulo 'ta' (Technical Analysis).\n"
-        "Instalalo con:  pip install ta\n"
-    )
-    import sys
-    sys.exit(1)
-
-# Import Modules
-from modulos.smc_ict import SmcIctModule
-from modulos.broker_behavior import BrokerBehaviorModule
-from modulos.feedback_loop import FeedbackLoop
-from modulos.yield_anomaly import YieldAnomalyModule
-from modulos.carry_trade import CarryTradeModule
-from modulos.dynamic_hedging import DynamicHedgingModule
-from modulos.gap_sniper import GapSniperModule
-from modulos.volatility_arb import VolatilityArbModule
-from modulos.stat_arb import StatArbModule
-from modulos.liquidity_provision import LiquidityProvisionModule
-from modulos.market_making import MarketMakingModule
-from modulos.market_regime import detect_regime
-from modulos.volatility_guard import VolatilityGuardModule
-
-from main.consensus import ConsensusAnalyzer
-from llm_client import ClaudeTrader
-
-class BacktestEngine:
-    def __init__(self, data_file='data/btc_history.csv', initial_capital=10000.0, commission_rate=0.001):
-        self.data_file = data_file
-        self.initial_capital = initial_capital
-        self.balance = initial_capital # Acts as "Free Cash" for Longs, and "Collateral" for Shorts
-        self.commission_rate = commission_rate
-        self.equity_curve = []
-        self.trades = []
-        self.position = None 
-        self.verbose = True
-        
-        # ── Forensic Analysis Log ───────────────────────────────────
-        self.forensic_log = []  # List of dicts for brutal_analysis_log.csv
-        self._last_exit_reason = None  # Tracks most recent exit reason per candle
-        
-        # ── Engine Isolation Mode (Benchmarking) ────────────────────
-        self.isolation_enabled = False
-        self.isolation_target = None
-        self.volume_threshold = 1.5
-        self.sweep_lookback_hours = 24
-        self.vix_percentile = 90.0
-        self.break_even_ratio = 1.0
-        self._load_isolation_config()
-        
-        # Modules
-        self.modules = {
-            'smc_ict': SmcIctModule(),
-            'broker_behavior': BrokerBehaviorModule(),
-            'yield_anomaly': YieldAnomalyModule(),
-            'dynamic_hedging': DynamicHedgingModule(),
-            'gap_sniper': GapSniperModule(
-                volume_threshold=self.volume_threshold,
-                sweep_lookback_hours=self.sweep_lookback_hours
-            ),
-            'volatility_arb': VolatilityArbModule(),
-            'carry_trade': CarryTradeModule(),
-            'stat_arb': StatArbModule(),
-            'liquidity_provision': LiquidityProvisionModule(),
-            'volatility_guard': VolatilityGuardModule(
-                vix_percentile=self.vix_percentile
-            )
-        }
-
+"""
+    content = content.replace("import yaml", "import yaml\n" + import_addition)
+    
+    # 2. Init modifications
+    init_addition = """
         self.consensus = ConsensusAnalyzer()
         self.feedback = FeedbackLoop(bored_threshold_candles=48)
         
@@ -130,59 +35,35 @@ class BacktestEngine:
         self.latency_ms = 50
         self.slippage_model = "volatility_adaptive"
         self.total_latency_loss = 0.0
-
-
-        # AI Engine (skip in isolation mode — no Claude needed)
-        if not self.isolation_enabled:
-            self.trader = ClaudeTrader()
-        else:
-            self.trader = None
-            print(f"\n{'='*60}")
-            print(f"  🔬 MODO AISLAMIENTO ACTIVO: {self.isolation_target.upper()}")
-            print(f"  ConsensusAnalyzer: BYPASS")
-            print(f"  ClaudeTrader:      BYPASS")
-            print(f"  Motor único:       {self.isolation_target}")
-            print(f"{'='*60}\n")
-        
-    def _load_isolation_config(self):
-        """Lee testing_mode.engine_isolation y parámetros de señales desde config.yaml."""
-        config_path = _PROJECT_ROOT / "config" / "config.yaml"
-        try:
-            with open(str(config_path), 'r', encoding='utf-8') as f:
-                cfg = yaml.safe_load(f)
-            testing = cfg.get('ai_engine', {}).get('testing_mode', {})
-            isolation = testing.get('engine_isolation', {})
-            self.isolation_enabled = isolation.get('enabled', False)
-            self.isolation_target = isolation.get('target_engine', 'gap_sniper')
-            
-            # Parametros de senales (configurable desde YAML)
-            self.volume_threshold = testing.get('volume_threshold', 1.5)
-            self.sweep_lookback_hours = testing.get('sweep_lookback_hours', 24)
-            self.vix_percentile = testing.get('vix_percentile', 90.0)
-            
-            inst_logic = cfg.get('ai_engine', {}).get('institutional_logic', {})
-            self.break_even_ratio = inst_logic.get('break_even_ratio', 1.0)
-
+"""
+    content = content.replace(
+        "        self.consensus = ConsensusAnalyzer()\n        self.feedback = FeedbackLoop(bored_threshold_candles=48)",
+        init_addition
+    )
+    
+    # 3. Load isolation config modifications
+    config_addition = """
             sim_settings = cfg.get('simulation_settings', {})
             self.latency_ms = sim_settings.get('simulated_latency_ms', 50)
             self.slippage_model = sim_settings.get('slippage_model', "volatility_adaptive")
+"""
+    content = content.replace(
+        "self.break_even_ratio = inst_logic.get('break_even_ratio', 1.0)",
+        "self.break_even_ratio = inst_logic.get('break_even_ratio', 1.0)\n" + config_addition
+    )
 
-        except Exception as e:
-            print(f"[Config] No se pudo leer testing_mode: {e} — modo normal.")
-            self.isolation_enabled = False
-            self.isolation_target = None
-
-    def load_data(self):
-        if not os.path.exists(self.data_file):
-            print(f"Error: {self.data_file} not found. Run utils/data_loader.py first.")
-            return None
-        
-        df = pd.read_csv(self.data_file)
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-        print(f"Data Loaded: {len(df)} candles.")
-        return df
-
-
+    # We need to replace the entire 'run' and '_manage_positions' methods.
+    # We can split the content at 'def run(self):' and 'def _close_position('
+    
+    parts = content.split("    def run(self):")
+    top_part = parts[0]
+    rest = parts[1]
+    
+    parts2 = rest.split("    def _close_position(self, price, timestamp, reason):")
+    close_position_and_rest = "    def _close_position(self, price, timestamp, reason):" + parts2[1]
+    
+    # Now we write the new methods
+    new_methods = """
     def run(self):
         df = self.load_data()
         if df is None: return
@@ -506,11 +387,11 @@ class BacktestEngine:
             'Lesson_Learned': self.trades[-1].get('lesson', '') if (self._last_exit_reason and self.trades) else ''
         })
 
-    def _close_position(self, price, timestamp, reason):
-        if not self.position: return
-        entry_price = self.position['entry_price']
-        size = self.position['size']
-
+"""
+    
+    # We must append _close_position from old, but change Slippage impact!
+    # Wait, Slippage on EXIT!
+    close_pos_addition = """
         market_price = price
         atr = self.current_atr if hasattr(self, 'current_atr') and self.current_atr > 0 else market_price * 0.01
         slippage_pct = (atr / market_price) * 0.05
@@ -523,145 +404,22 @@ class BacktestEngine:
             price = market_price * (1 + slippage_pct)
             latency_loss_per_unit = price - market_price
             self.total_latency_loss += latency_loss_per_unit * size
-
-        
-        if self.position['type'] == 'long':
-            revenue = size * price
-            fee = revenue * self.commission_rate
-            self.balance += (revenue - fee)
-            gross_pnl = (price - entry_price) * size
-            entry_fee = (size * entry_price) * self.commission_rate
-            net_pnl = gross_pnl - fee - entry_fee
-        else: # SHORT
-            gross_pnl = (entry_price - price) * size
-            cover_cost = size * price
-            exit_fee = cover_cost * self.commission_rate
-            self.balance += (gross_pnl - exit_fee)
-            # For reported trade PnL statistic, we include entry fee
-            trade_pnl_report = gross_pnl - exit_fee - entry_fee
-            net_pnl = trade_pnl_report # Use this for the logs
-
-        # Track exit reason for forensic log
-        self._last_exit_reason = reason
-        
-        self.trades.append({
-            'type': self.position['type'],
-            'entry_time': self.position['entry_time'],
-            'exit_time': timestamp,
-            'entry_price': entry_price,
-            'exit_price': price,
-            'pnl': net_pnl,
-            'reason': reason,
-            'poi_quality': self.position.get('poi_quality', 'UNKNOWN')
-        })
-        
-        print(f"[{timestamp}] CLOSE {self.position['type'].upper()} @ {price:.2f} ({reason}). PnL: ${net_pnl:.2f}")
-        self.position = None
-
-    def _generate_report(self):
-        print("\n--- PERFORMANCE REPORT ---")
-        percent_return = ((self.balance - self.initial_capital) / self.initial_capital) * 100
-        
-        wins = [t for t in self.trades if t['pnl'] > 0]
-        losses = [t for t in self.trades if t['pnl'] <= 0]
-        
-        win_rate = (len(wins) / len(self.trades) * 100) if self.trades else 0.0
-        
-        gross_profit = sum(t['pnl'] for t in wins)
-        gross_loss = abs(sum(t['pnl'] for t in losses))
-        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
-        
-        # Max Drawdown
-        equity_series = pd.DataFrame(self.equity_curve)
-        max_dd = 0.0
-        if not equity_series.empty:
-            equity_series['peak'] = equity_series['equity'].cummax()
-            equity_series['dd'] = (equity_series['peak'] - equity_series['equity']) / equity_series['peak']
-            max_dd = equity_series['dd'].max() * 100
-        
-        # ── Cabecera de Aislamiento ─────────────────────────────────
-        isolation_header = ""
-        if self.isolation_enabled:
-            isolation_header = f"\n--- AISLAMIENTO ACTIVO: MODO {self.isolation_target.upper()} ---\n"
-            
-        report_str = f"""{isolation_header}
---- PERFORMANCE REPORT ---
-Final Balance:  ${self.balance:,.2f}
-Total Return:   {percent_return:.2f}%
-Win Rate:       {win_rate:.2f}%
-Profit Factor:  {profit_factor:.2f}
-Max Drawdown:   {max_dd:.2f}%
-Total Trades:   {len(self.trades)}
-Latency Loss:   ${self.total_latency_loss:,.2f}
 """
-        print(report_str)
-        
-        # Nombre dinámico de archivo según modo
-        if self.isolation_enabled:
-            report_file = f'backtest_report_ISOLATION_{self.isolation_target}.txt'
-            chart_file = f'equity_curve_ISOLATION_{self.isolation_target}.png'
-        else:
-            report_file = 'backtest_report.txt'
-            chart_file = 'equity_curve.png'
-        
-        with open(report_file, 'w') as f:
-            f.write(report_str)
-        print(f"Report saved to {report_file}")
-        
-        if not equity_series.empty:
-            plt.figure(figsize=(10,6))
-            plt.plot(equity_series['timestamp'], equity_series['equity'])
-            title = f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f}"
-            if self.isolation_enabled:
-                title = f"[ISOLATION: {self.isolation_target.upper()}] {title}"
-            plt.title(title)
-            plt.xlabel("Date")
-            plt.ylabel("Capital ($)")
-            plt.grid(True)
-            plt.savefig(chart_file)
-            print(f"Chart saved to {chart_file}")
+    
+    close_parts = close_position_and_rest.split("        entry_price = self.position['entry_price']")
+    final_close = close_parts[0] + "        entry_price = self.position['entry_price']\n        size = self.position['size']\n" + close_pos_addition + close_parts[1].split("        size = self.position['size']")[1]
+    
+    # Also update _generate_report to print Latency Loss
+    final_close = final_close.replace(
+        "Total Trades:   {len(self.trades)}",
+        "Total Trades:   {len(self.trades)}\nLatency Loss:   ${self.total_latency_loss:,.2f}"
+    )
 
-    def _save_forensic_log(self):
-        """Guarda brutal_analysis_log.csv con diagnóstico forense de cada vela."""
-        if not self.forensic_log:
-            print("[Forensic] No hay datos para guardar.")
-            return
-        
-        csv_path = 'brutal_analysis_log.csv'
-        fieldnames = [
-            'Fecha', 'Precio', 'EMA200', 'Regimen', 'Hurst_Score',
-            'Señal_CarryTrade', 'Confianza_CarryTrade',
-            'Señal_SMC', 'Confianza_SMC', 'Estructura_SMC', 'OB_Tipo_SMC',
-            'Decision_Claude', 'Consenso_Recomendacion', 'Confianza_Consenso',
-            'Posicion_Activa', 'Razon_de_Salida', 'PnL_Trade',
-            'Culpable_Perdida', 'FLAG_NOISE', 'POI_Quality', 'Lesson_Learned'
-        ]
-        
-        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(self.forensic_log)
-        
-        # ── Summary Stats ───────────────────────────────────────────
-        total_rows = len(self.forensic_log)
-        noise_rows = sum(1 for r in self.forensic_log if r['FLAG_NOISE'])
-        loss_rows = [r for r in self.forensic_log if r['Culpable_Perdida']]
-        noise_losses = [r for r in loss_rows if '⚠️NOISE_REGIME' in r.get('Culpable_Perdida', '')]
-        
-        print(f"\n{'='*60}")
-        print(f"  BRUTAL ANALYSIS LOG — FORENSIC SUMMARY")
-        print(f"{'='*60}")
-        print(f"  Archivo guardado: {csv_path}")
-        print(f"  Total velas analizadas: {total_rows}")
-        print(f"  Velas en NOISE:         {noise_rows} ({noise_rows/total_rows*100:.1f}%)")
-        print(f"  Trades con pérdida:     {len(loss_rows)}")
-        print(f"  Pérdidas en NOISE:      {len(noise_losses)}")
-        if loss_rows:
-            print(f"\n  --- CULPABLES POR PÉRDIDA ---")
-            for r in loss_rows:
-                print(f"  [{r['Fecha']}] PnL: ${r['PnL_Trade']} | Régimen: {r['Regimen']} | Culpable: {r['Culpable_Perdida']}")
-        print(f"{'='*60}\n")
+    full_new = top_part + new_methods + final_close
+    
+    with open('backtest_engine.py', 'w', encoding='utf-8') as f:
+        f.write(full_new)
 
 if __name__ == "__main__":
-    eng = BacktestEngine()
-    eng.run()
+    refactor_engine()
+    print("Refactor complete.")

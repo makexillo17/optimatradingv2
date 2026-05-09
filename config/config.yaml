@@ -55,5 +55,11 @@ ai_engine:
 
     # Aislamiento de motores
     engine_isolation:
-      enabled: true   # true = aislamiento, false = consenso normal
+      enabled: false   # true = aislamiento, false = consenso normal
       target_engine: smc_ict  # Opciones: gap_sniper, smc_ict, carry_trade, etc.
+
+# Ajustes de Simulación Física (Event-Driven Architecture)
+simulation_settings:
+  execution_mode: "event_driven"
+  simulated_latency_ms: 50
+  slippage_model: "volatility_adaptive"
