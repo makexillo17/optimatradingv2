@@ -9,6 +9,8 @@ import yaml
 
 from dataclasses import dataclass, field
 from queue import PriorityQueue
+import asyncio
+from collections import deque
 from datetime import timedelta
 
 # Tipos de Eventos
@@ -74,6 +76,8 @@ from modulos.stat_arb import StatArbModule
 from modulos.liquidity_provision import LiquidityProvisionModule
 from modulos.market_making import MarketMakingModule
 from modulos.market_regime import detect_regime
+from modulos.execution_manager import check_hard_veto
+from modulos.microstructure import is_flow_toxic
 from modulos.volatility_guard import VolatilityGuardModule
 
 from main.consensus import ConsensusAnalyzer
@@ -130,6 +134,10 @@ class BacktestEngine:
         self.latency_ms = 50
         self.slippage_model = "volatility_adaptive"
         self.total_latency_loss = 0.0
+        self.last_prob_direccion = 0.5
+
+        self.tick_event = asyncio.Event()
+        self.monitor_task = None
 
 
         # AI Engine (skip in isolation mode — no Claude needed)
@@ -183,7 +191,7 @@ class BacktestEngine:
         return df
 
 
-    def run(self):
+    async def run(self):
         df = self.load_data()
         if df is None: return
         
@@ -192,6 +200,8 @@ class BacktestEngine:
         
         start_idx = 205
         self.cooldown = 0
+        self.tick_event.clear()
+        self.monitor_task = asyncio.create_task(self._monitor_position())
         self.current_df_full = df
         
         # ── 1. Enqueue MARKET_TICK events ──
@@ -212,7 +222,7 @@ class BacktestEngine:
             if event.event_type == MARKET_TICK:
                 self._handle_market_tick(event)
             elif event.event_type == SIGNAL_GENERATED:
-                self._handle_signal(event)
+                await self._handle_signal(event)
             elif event.event_type == ORDER_PLACED:
                 self._handle_order_placed(event)
                 
@@ -224,6 +234,8 @@ class BacktestEngine:
 
         self._save_forensic_log()
         self._generate_report()
+        if self.monitor_task:
+            self.monitor_task.cancel()
 
     def _handle_market_tick(self, event):
         data = event.data
@@ -235,6 +247,7 @@ class BacktestEngine:
         self.current_price = price
         self.current_time = timestamp
         self.current_idx = idx
+        self.tick_event.set()
         
         # 1. Manage Exits first (SL/TP)
         self._manage_exits(price, timestamp)
@@ -248,7 +261,7 @@ class BacktestEngine:
             current_df = self.current_df_full.iloc[:idx+1].copy()
             self.events.put(Event(timestamp, 2, SIGNAL_GENERATED, {'df': current_df, 'candle': data['candle']}))
 
-    def _handle_signal(self, event):
+    async def _handle_signal(self, event):
         current_df = event.data['df']
         current_candle = event.data['candle']
         current_time = event.timestamp
@@ -308,7 +321,7 @@ class BacktestEngine:
                     module_results[name] = module.analyze(market_input)
                 except Exception: pass
                 
-            consensus_result = self.consensus.analyze(module_results, market_regime=current_regime)
+            consensus_result = await asyncio.get_event_loop().run_in_executor(None, lambda: self.consensus.analyze(module_results, market_regime=current_regime))
             consensus_signal = consensus_result.get('signal', consensus_result.get('details', {}).get('avg_signal', 0.0))
             recommendation = consensus_result.get('recommendation', 'NEUTRAL')
             
@@ -324,7 +337,7 @@ class BacktestEngine:
                 'consensus_signal': float(consensus_signal),
                 'obi_score': float(module_results.get('smc_ict', {}).get('details', {}).get('obi_score', 0.0))
             }
-            try: ai_decision = self.trader.analyze_market_data(current_row, market_regime=current_regime)
+            try: ai_decision = await self.trader.analyze_market_data(current_row, market_regime=current_regime)
             except Exception: ai_decision = "HOLD"
             
             if current_regime == 'NOISE' and ai_decision != "HOLD": ai_decision = "HOLD"
@@ -423,42 +436,15 @@ class BacktestEngine:
             print(f"[{timestamp}] SELL SHORT @ {execution_price:.2f} (Slippage/Latency Loss: ${total_loss:.2f})")
             self.feedback.reset_inactivity()
 
+
     def _manage_exits(self, price, timestamp):
         if not self.position: return
         
-        # Break-Even Logic
-        if not self.position.get('break_even_triggered', False):
-            initial_sl = self.position.get('initial_stop_loss', 0)
-            entry_price = self.position['entry_price']
-            if self.position['type'] == 'long' and initial_sl > 0:
-                if price - entry_price >= (entry_price - initial_sl) * self.break_even_ratio:
-                    self.position['stop_loss'] = entry_price
-                    self.position['break_even_triggered'] = True
-            elif self.position['type'] == 'short' and initial_sl > 0:
-                if entry_price - price >= (initial_sl - entry_price) * self.break_even_ratio:
-                    self.position['stop_loss'] = entry_price
-                    self.position['break_even_triggered'] = True
-
-        # Stop Loss
-        if self.position['type'] == 'long' and price <= self.position['stop_loss']:
-            self._close_position(price, timestamp, "Stop Loss")
-            return
-        elif self.position['type'] == 'short' and price >= self.position['stop_loss']:
-            self._close_position(price, timestamp, "Stop Loss")
-            return
-            
-        # Take Profit
-        if self.position.get('take_profit'):
-            tp = self.position['take_profit']
-            if self.position['type'] == 'long' and price >= tp:
-                self._close_position(price, timestamp, "Take Profit")
-                return
-            elif self.position['type'] == 'short' and price <= tp:
-                self._close_position(price, timestamp, "Take Profit")
-                return
-                
-        # Reversal
+        # SL/TP are now handled by _monitor_position task in zero-latency
+        # Only Reversals are handled here
+        
         if hasattr(self, 'last_module_results'):
+
             ai_decision = self.last_ai_decision
             consensus_signal = self.last_consensus_signal
             divergence = self.last_module_results.get('yield_anomaly', {}).get('divergence_detected', False)
@@ -559,6 +545,49 @@ class BacktestEngine:
         
         print(f"[{timestamp}] CLOSE {self.position['type'].upper()} @ {price:.2f} ({reason}). PnL: ${net_pnl:.2f}")
         self.position = None
+
+    async def _monitor_position(self):
+        # Tarea de salida de latencia cero
+        while True:
+            try:
+                await self.tick_event.wait()
+                self.tick_event.clear()
+                
+                if self.position:
+                    price = self.current_price
+                    timestamp = self.current_time
+                    
+                    # Zero-Latency Check SL / TP
+                    initial_sl = self.position.get('initial_stop_loss', 0)
+                    entry_price = self.position['entry_price']
+                    
+                    if not self.position.get('break_even_triggered', False):
+                        # Exit on weakness
+                        if self.last_prob_direccion < 0.4:
+                            self._close_position(price, timestamp, "Exit on Weakness (Prob < 0.4)")
+                            continue
+                        if self.position['type'] == 'long' and initial_sl > 0:
+                            if price - entry_price >= (entry_price - initial_sl) * self.break_even_ratio:
+                                self.position['stop_loss'] = entry_price
+                                self.position['break_even_triggered'] = True
+                        elif self.position['type'] == 'short' and initial_sl > 0:
+                            if entry_price - price >= (initial_sl - entry_price) * self.break_even_ratio:
+                                self.position['stop_loss'] = entry_price
+                                self.position['break_even_triggered'] = True
+                                
+                    if self.position['type'] == 'long' and price <= self.position['stop_loss']:
+                        self._close_position(price, timestamp, "Stop Loss")
+                    elif self.position['type'] == 'short' and price >= self.position['stop_loss']:
+                        self._close_position(price, timestamp, "Stop Loss")
+                        
+                    tp = self.position.get('take_profit')
+                    if tp:
+                        if self.position['type'] == 'long' and price >= tp:
+                            self._close_position(price, timestamp, "Take Profit")
+                        elif self.position['type'] == 'short' and price <= tp:
+                            self._close_position(price, timestamp, "Take Profit")
+            except asyncio.CancelledError:
+                break
 
     def _generate_report(self):
         print("\n--- PERFORMANCE REPORT ---")
@@ -666,4 +695,4 @@ Latency Loss:   ${self.total_latency_loss:,.2f}
 
 if __name__ == "__main__":
     eng = BacktestEngine()
-    eng.run()
+    asyncio.run(eng.run())

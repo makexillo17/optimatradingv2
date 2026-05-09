@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 
 # ── Importación segura de anthropic ─────────────────────────────────
 try:
-    from anthropic import Anthropic
+    from anthropic import Anthropic, AsyncAnthropic
 except ModuleNotFoundError:
     print(
         "\n[ERROR FATAL] No se encontró el módulo 'anthropic'.\n"
@@ -161,7 +161,7 @@ class ClaudeTrader:
         print(f"[ClaudeTrader] API Key validada: {self.api_key[:5]}...{self.api_key[-4:]}  (len={len(self.api_key)})")
 
         # 5. Instanciar cliente de Anthropic
-        self.client = Anthropic(api_key=self.api_key)
+        self.client = AsyncAnthropic(api_key=self.api_key)
 
         logger.info(
             "ClaudeTrader inicializado — modelo=%s  max_tokens=%d  temperature=%.1f",
@@ -173,7 +173,7 @@ class ClaudeTrader:
     # ----------------------------------------------------------------
     # Método principal
     # ----------------------------------------------------------------
-    def analyze_market_data(
+    async def analyze_market_data(
         self,
         current_data: Union[Dict[str, Any], pd.DataFrame],
         context_docs: Optional[str] = None,
@@ -207,12 +207,17 @@ class ClaudeTrader:
                 "Revisa tu archivo .env o las variables de entorno."
             )
 
-        # ── Construir el user prompt ────────────────────────────────
-        user_prompt = self._build_user_prompt(current_data, context_docs, market_regime)
+        obi_score = current_data.get('obi_score', 0.0)
+        rvol = current_data.get('rvol', 1.0)
+        structure = current_data.get('structure', 'Estructura Neutra')
+        
+        user_prompt = f"Contexto: OBI muestra absorción del {abs(obi_score*100):.0f}%. WVDI confirma volumen institucional ({rvol:.2f}). El precio está en {structure}. Valida si la estructura de velas confirma la dirección del mercado."
+        user_prompt += "\nIMPORTANTE: Retorna ÚNICAMENTE un número decimal entre 0.0 y 1.0 representando tu Score Estético IA. No agregues texto."
+
 
         # ── Llamar a la API de Anthropic ────────────────────────────
         try:
-            message = self.client.messages.create(
+            message = await self.client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
@@ -222,20 +227,15 @@ class ClaudeTrader:
                 ],
             )
 
-            # Extraer texto de la respuesta
-            raw_response = message.content[0].text
-            decision = raw_response.strip().upper()
-
-            # Validar que sea una decisión esperada
-            if decision not in ("BUY", "SELL", "HOLD"):
-                logger.warning(
-                    "Respuesta inesperada de Claude: '%s' — defaulting to HOLD",
-                    raw_response,
-                )
-                return "HOLD"
-
-            logger.info("ClaudeTrader decisión: %s", decision)
-            return decision
+            raw_response = message.content[0].text.strip()
+            try:
+                import re
+                match = re.search(r"0\.\d+|1\.0|0|1", raw_response)
+                score_estetico = float(match.group(0)) if match else 0.5
+            except ValueError:
+                score_estetico = 0.5
+                
+            return score_estetico
 
         except Exception as e:
             logger.error("Error al llamar a la API de Anthropic: %s", str(e))
