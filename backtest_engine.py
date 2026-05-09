@@ -10,6 +10,9 @@ import yaml
 from dataclasses import dataclass, field
 from queue import PriorityQueue
 import asyncio
+import grpc
+import protos.anemona_pb2 as anemona_pb2
+import protos.anemona_pb2_grpc as anemona_pb2_grpc
 from collections import deque
 from datetime import timedelta
 
@@ -76,7 +79,7 @@ from modulos.stat_arb import StatArbModule
 from modulos.liquidity_provision import LiquidityProvisionModule
 from modulos.market_making import MarketMakingModule
 from modulos.market_regime import detect_regime
-from modulos.execution_manager import check_hard_veto
+from modulos.execution_manager import check_hard_veto, execute_hard_veto
 from modulos.microstructure import is_flow_toxic
 from modulos.volatility_guard import VolatilityGuardModule
 
@@ -135,6 +138,12 @@ class BacktestEngine:
         self.slippage_model = "volatility_adaptive"
         self.total_latency_loss = 0.0
         self.last_prob_direccion = 0.5
+        self.alpha_factor = 0.0
+        self.position_multiplier = 1.0
+        self.witching_warning = False
+        self.event_impact = 1
+        self.event_sentiment = 0.0
+        self.system_status = 'ACTIVE'
 
         self.tick_event = asyncio.Event()
         self.monitor_task = None
@@ -202,6 +211,7 @@ class BacktestEngine:
         self.cooldown = 0
         self.tick_event.clear()
         self.monitor_task = asyncio.create_task(self._monitor_position())
+        self.anemona_task = asyncio.create_task(self._listen_anemona())
         self.current_df_full = df
         
         # ── 1. Enqueue MARKET_TICK events ──
@@ -236,6 +246,8 @@ class BacktestEngine:
         self._generate_report()
         if self.monitor_task:
             self.monitor_task.cancel()
+        if hasattr(self, 'anemona_task'):
+            self.anemona_task.cancel()
 
     def _handle_market_tick(self, event):
         data = event.data
@@ -354,10 +366,10 @@ class BacktestEngine:
         self.current_atr = hedging_info.get('current_atr', current_price * 0.01)
 
         # Update Equity Curve
-        current_equity = self.balance
+        current_equity = self.balance * self.position_multiplier
         if self.position:
-            if self.position['type'] == 'long': current_equity = self.balance + (self.position['size'] * current_price)
-            elif self.position['type'] == 'short': current_equity = self.balance + ((self.position['entry_price'] - current_price) * self.position['size'])
+            if self.position['type'] == 'long': current_equity = self.balance * self.position_multiplier + (self.position['size'] * current_price)
+            elif self.position['type'] == 'short': current_equity = self.balance * self.position_multiplier + ((self.position['entry_price'] - current_price) * self.position['size'])
         self.equity_curve.append({'timestamp': current_time, 'equity': current_equity})
 
         # Forensic Log Update
@@ -393,7 +405,7 @@ class BacktestEngine:
             execution_price = market_price * (1 + slippage_pct)
             latency_loss_per_unit = execution_price - market_price
             
-            capital = self.balance
+            capital = self.balance * self.position_multiplier
             size_asset = (capital * 0.99) / execution_price
             total_loss = latency_loss_per_unit * size_asset
             self.total_latency_loss += total_loss
@@ -404,6 +416,10 @@ class BacktestEngine:
             self.balance -= (size_asset * execution_price + fee)
             
             entry_sl = order['sniper_sl'] if order['sniper_sl'] > 0 else order['stop_long']
+            if self.witching_warning:
+                # Aumentar agresividad de Stop Loss 30%
+                entry_sl = execution_price - ((execution_price - entry_sl) * 0.7) if order['direction'] == 'BUY' else execution_price + ((entry_sl - execution_price) * 0.7)
+
             self.position = {
                 'type': 'long', 'entry_price': execution_price, 'size': size_asset,
                 'stop_loss': entry_sl, 'initial_stop_loss': entry_sl,
@@ -417,7 +433,7 @@ class BacktestEngine:
             execution_price = market_price * (1 - slippage_pct)
             latency_loss_per_unit = market_price - execution_price
             
-            equity = self.balance
+            equity = self.balance * self.position_multiplier
             size_asset = (equity * 0.99) / execution_price
             total_loss = latency_loss_per_unit * size_asset
             self.total_latency_loss += total_loss
@@ -427,6 +443,10 @@ class BacktestEngine:
             self.balance -= fee 
             
             entry_sl = order['sniper_sl'] if order['sniper_sl'] > 0 else order['stop_short']
+            if self.witching_warning:
+                # Aumentar agresividad de Stop Loss 30%
+                entry_sl = execution_price - ((execution_price - entry_sl) * 0.7) if order['direction'] == 'BUY' else execution_price + ((entry_sl - execution_price) * 0.7)
+
             self.position = {
                 'type': 'short', 'entry_price': execution_price, 'size': size_asset,
                 'stop_loss': entry_sl, 'initial_stop_loss': entry_sl,
@@ -553,6 +573,16 @@ class BacktestEngine:
                 await self.tick_event.wait()
                 self.tick_event.clear()
                 
+                # PANIC PROTOCOL
+                if self.system_status == 'ACTIVE' and getattr(self, 'event_impact', 1) == 5 and getattr(self, 'event_sentiment', 0.0) < -0.8:
+                    execute_hard_veto("BTCUSD")
+                    self.system_status = 'SUSPENDED'
+                    if self.position:
+                        self._close_position(self.current_price, self.current_time, "FLASH CLOSE (Panic Protocol)")
+                        
+                if self.system_status == 'SUSPENDED':
+                    continue
+
                 if self.position:
                     price = self.current_price
                     timestamp = self.current_time
@@ -588,6 +618,20 @@ class BacktestEngine:
                             self._close_position(price, timestamp, "Take Profit")
             except asyncio.CancelledError:
                 break
+
+    async def _listen_anemona(self):
+        try:
+            async with grpc.aio.insecure_channel('localhost:50051') as channel:
+                stub = anemona_pb2_grpc.AlphaSignalEngineStub(channel)
+                request = anemona_pb2.SignalRequest(client_id="OptimaV2")
+                async for update in stub.SubscribePositionMultipliers(request):
+                    self.alpha_factor = update.raw_current_alpha_factor
+                    self.position_multiplier = update.terminal_position_multiplier
+                    self.witching_warning = update.severe_macro_rebalance_warning
+                    self.event_impact = update.event_impact_level
+                    self.event_sentiment = update.event_sentiment
+        except Exception as e:
+            pass # gRPC no disponible
 
     def _generate_report(self):
         print("\n--- PERFORMANCE REPORT ---")

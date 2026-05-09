@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package anemona;
+
+service AlphaSignalEngine {
+    rpc SubscribePositionMultipliers (SignalRequest) returns (stream MultiplierUpdate);
+}
+
+message SignalRequest {
+    string client_id = 1;
+}
+
+message MultiplierUpdate {
+    int64 exact_timestamp_ms = 1;
+    double raw_current_alpha_factor = 2;
+    double terminal_position_multiplier = 4;
+    bool severe_macro_rebalance_warning = 5;
+    int32 event_impact_level = 6;
+    double event_sentiment = 7;
+}
