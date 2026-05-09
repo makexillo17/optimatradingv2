@@ -132,6 +132,11 @@ class SmcIctModule(BaseAnalysisModule):
                         break
                         
                 elif z['type'] in ['bear_ob', 'bear_breaker']:
+                    
+                    if obi_score > 0.1:
+                        # Spoofing: Retiro de Asks institucionales
+                        z['state'] = OB_INVALIDATED
+                        continue
                     if (z['bottom'] * 0.999) <= current_close <= z['top']:
                         signal = "short"
                         fvg_tag = " +FVG" if z.get('has_fvg') else ""
@@ -167,6 +172,7 @@ class SmcIctModule(BaseAnalysisModule):
             result = self.format_result(signal, confidence, justification)
             result.update({
                 'structure': structure,
+                'obi_score': obi_score,
                 'nearest_ob_type': nearest_ob_type,
                 'nearest_ob_price': float(nearest_ob_price),
                 'ob_rvol': float(ob_rvol),

@@ -322,6 +322,7 @@ class BacktestEngine:
                 'close': float(current_price), 'volume': float(current_candle['volume']),
                 'ema200': float(current_ema200), 'regime': current_regime,
                 'consensus_signal': float(consensus_signal),
+                'obi_score': float(module_results.get('smc_ict', {}).get('details', {}).get('obi_score', 0.0))
             }
             try: ai_decision = self.trader.analyze_market_data(current_row, market_regime=current_regime)
             except Exception: ai_decision = "HOLD"
@@ -494,6 +495,7 @@ class BacktestEngine:
             'Confianza_SMC': round(smc_result.get('confidence', 0.0), 2),
             'Estructura_SMC': smc_result.get('structure', 'N/A'),
             'OB_Tipo_SMC': smc_result.get('nearest_ob_type', 'None'),
+            'OBI_Score': round(smc_result.get('details', {}).get('obi_score', 0.0), 4),
             'Decision_Claude': ai_decision,
             'Consenso_Recomendacion': recommendation,
             'Confianza_Consenso': round(consensus_result.get('confidence', 0.0) if type(consensus_result) == dict else 0.0, 4),
@@ -634,7 +636,7 @@ Latency Loss:   ${self.total_latency_loss:,.2f}
             'Señal_SMC', 'Confianza_SMC', 'Estructura_SMC', 'OB_Tipo_SMC',
             'Decision_Claude', 'Consenso_Recomendacion', 'Confianza_Consenso',
             'Posicion_Activa', 'Razon_de_Salida', 'PnL_Trade',
-            'Culpable_Perdida', 'FLAG_NOISE', 'POI_Quality', 'Lesson_Learned'
+            'Culpable_Perdida', 'FLAG_NOISE', 'POI_Quality', 'Lesson_Learned', 'OBI_Score'
         ]
         
         with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:

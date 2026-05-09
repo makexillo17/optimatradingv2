@@ -10,6 +10,7 @@ Implementa:
 
 import pandas as pd
 import numpy as np
+from modulos.microstructure import calculate_obi, is_flow_toxic
 from typing import Dict, Any, Optional
 from .base_module import BaseAnalysisModule
 from ta.volatility import AverageTrueRange

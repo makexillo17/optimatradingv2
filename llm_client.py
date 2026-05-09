@@ -294,7 +294,13 @@ class ClaudeTrader:
             parts.append(data.to_string())
         elif isinstance(data, dict):
             for key, value in data.items():
-                parts.append(f"- {key}: {value}")
+                if key != 'obi_score':
+                    parts.append(f"- {key}: {value}")
+            
+            obi_score = data.get('obi_score', None)
+            if obi_score is not None:
+                parts.append(f"\nEl desequilibrio del libro de órdenes (OBI) es de {obi_score:.2f}.")
+                parts.append("¿La estructura técnica es coherente con esta presión institucional?")
         else:
             parts.append(str(data))
 
