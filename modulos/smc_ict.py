@@ -54,7 +54,8 @@ class SmcIctModule(BaseAnalysisModule):
             # ═══════════════════════════════════════════════════════
             has_volume = 'volume' in df.columns and df['volume'].sum() > 0
             if has_volume:
-                vol_ma_20 = df['volume'].rolling(window=20).mean()
+                from typing import cast
+                vol_ma_20 = cast(pd.Series, df['volume'].rolling(window=20).mean())
             else:
                 vol_ma_20 = pd.Series([1.0] * len(df), index=df.index)
 
@@ -82,6 +83,7 @@ class SmcIctModule(BaseAnalysisModule):
             has_fvg = False
             tp_price = 0.0
             sl_price = 0.0
+            obi_score = 0.0
             
             # Sort: Quality Score first (FVG-adjacent), then UNMITIGATED, then most recent
             active_zones.sort(key=lambda z: (
@@ -125,7 +127,7 @@ class SmcIctModule(BaseAnalysisModule):
                         
                         justification = (
                             f"Precio en {nearest_ob_type}{quality_tag}{fvg_tag}. "
-                            f"Estado: {state_tag}. RVOL: {zone_rvol:.2f}. "
+                            f"Estado: {state_tag}. RVOL: {ob_rvol:.2f}. "
                             f"Estructura: {structure}. "
                             f"TP: {tp_price:.2f} | SL: {sl_price:.2f} (1:1.5)"
                         )
@@ -163,7 +165,7 @@ class SmcIctModule(BaseAnalysisModule):
                         
                         justification = (
                             f"Precio en {nearest_ob_type}{quality_tag}{fvg_tag}. "
-                            f"Estado: {state_tag}. RVOL: {zone_rvol:.2f}. "
+                            f"Estado: {state_tag}. RVOL: {ob_rvol:.2f}. "
                             f"Estructura: {structure}. "
                             f"TP: {tp_price:.2f} | SL: {sl_price:.2f} (1:1.5)"
                         )

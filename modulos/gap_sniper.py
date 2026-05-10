@@ -63,8 +63,8 @@ class GapSniperModule(BaseAnalysisModule):
         wick_ratio = wick_length / total_range
         
         # Volume Z-Score
-        vol_ma = volume_series.rolling(window=20).mean().iloc[-1]
-        vol_std = volume_series.rolling(window=20).std().iloc[-1]
+        vol_ma = volume_series.rolling(window=20).mean().iloc[-1]  # type: ignore
+        vol_std = volume_series.rolling(window=20).std().iloc[-1]  # type: ignore
         
         if vol_std > 0 and not np.isnan(vol_std):
             vol_zscore = (v - vol_ma) / vol_std
@@ -91,9 +91,10 @@ class GapSniperModule(BaseAnalysisModule):
                     f"Datos insuficientes: {len(market_data)} velas (Min 25)")
             
             # --- INDICADORES ---
+            from typing import cast
             indicator_atr = AverageTrueRange(
-                high=market_data['high'], low=market_data['low'],
-                close=market_data['close'], window=14
+                high=cast(pd.Series, market_data['high']), low=cast(pd.Series, market_data['low']),
+                close=cast(pd.Series, market_data['close']), window=14
             )
             current_atr = indicator_atr.average_true_range().iloc[-1]
             
@@ -112,6 +113,7 @@ class GapSniperModule(BaseAnalysisModule):
             tp_price = 0.0
             sl_price = 0.0
             wvdi_score = 0.0
+            poi_quality = "RETAIL_SIGNAL"
             
             current_close = candle_c['close']
             current_low = candle_c['low']
@@ -267,7 +269,7 @@ class GapSniperModule(BaseAnalysisModule):
                 'current_atr': float(current_atr),
                 'low_24h': float(low_24h),
                 'high_24h': float(high_24h),
-                'poi_quality': poi_quality if 'poi_quality' in locals() else 'RETAIL_SIGNAL',
+                'poi_quality': poi_quality,
             })
             return result
             

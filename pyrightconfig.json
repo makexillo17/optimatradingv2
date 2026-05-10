@@ -1,0 +1,5 @@
+{
+  "exclude": ["venv", "node_modules", ".git", "__pycache__", ".*"],
+  "extraPaths": ["c:/Users/chump/OneDrive/proyecto personal"],
+  "reportMissingImports": "none"
+}

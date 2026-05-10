@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  analysis-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: optimatrading-analysis
+    command: uvicorn main.main:app --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - app_data:/app/data
+      - .env:/app/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  execution-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: optimatrading-execution
+    command: uvicorn optimatrading.api.routes:app --host 0.0.0.0 --port 8081
+    ports:
+      - "8081:8081"
+    volumes:
+      - app_data:/app/data
+      - .env:/app/.env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: optimatrading-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  app_data:

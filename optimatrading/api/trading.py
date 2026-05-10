@@ -28,7 +28,8 @@ class ConectorBase(ABC):
             logger_manager: Gestor de logs
         """
         self.config = config
-        self.logger = logger_manager.get_logger(f"Conector{config.plataforma}") if logger_manager else None
+        from typing import cast, Any
+        self.logger = cast(Any, logger_manager.get_logger(f"Conector{config.plataforma}")) if logger_manager else None
         
     @abstractmethod
     async def conectar(self) -> None:
@@ -321,7 +322,8 @@ class GestorConectores:
         Args:
             logger_manager: Gestor de logs
         """
-        self.logger = logger_manager.get_logger("GestorConectores") if logger_manager else None
+        from typing import cast, Any
+        self.logger = cast(Any, logger_manager.get_logger("GestorConectores")) if logger_manager else None
         self.conectores: Dict[str, ConectorBase] = {}
         
     async def crear_conector(

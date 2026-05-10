@@ -1,2 +1,43 @@
-fly.toml
-.venv
+# Ambientes Virtuales
+venv/
+env/
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Control de Versiones
+.git/
+.github/
+.gitignore
+
+# Frontend
+frontend/
+
+# IDE y Editores
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore

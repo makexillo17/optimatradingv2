@@ -52,7 +52,7 @@ def update_llm_client():
             logger.info("ClaudeTrader decisión: %s", decision)
             return decision"""
             
-    new_parse = """            raw_response = message.content[0].text.strip()
+    new_parse = r"""            raw_response = message.content[0].text.strip()
             try:
                 import re
                 match = re.search(r"0\.\d+|1\.0|0|1", raw_response)

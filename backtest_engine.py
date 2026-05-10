@@ -32,7 +32,7 @@ class Event:
 
 # Force UTF-8 output on Windows console (prevents emoji encoding errors)
 if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
-    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')  # type: ignore
 
 # Ensure root directory is in path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -155,7 +155,8 @@ class BacktestEngine:
         else:
             self.trader = None
             print(f"\n{'='*60}")
-            print(f"  🔬 MODO AISLAMIENTO ACTIVO: {self.isolation_target.upper()}")
+            target_name = str(self.isolation_target).upper() if self.isolation_target else "UNKNOWN"
+            print(f"  🔬 MODO AISLAMIENTO ACTIVO: {target_name}")
             print(f"  ConsensusAnalyzer: BYPASS")
             print(f"  ClaudeTrader:      BYPASS")
             print(f"  Motor único:       {self.isolation_target}")
@@ -289,6 +290,7 @@ class BacktestEngine:
         ai_decision = "HOLD"
         consensus_signal = 0.0
         recommendation = "NEUTRAL"
+        consensus_result = {}
         
         if self.isolation_enabled:
             target = self.isolation_target
@@ -349,7 +351,9 @@ class BacktestEngine:
                 'consensus_signal': float(consensus_signal),
                 'obi_score': float(module_results.get('smc_ict', {}).get('details', {}).get('obi_score', 0.0))
             }
-            try: ai_decision = await self.trader.analyze_market_data(current_row, market_regime=current_regime)
+            try: 
+                if self.trader is not None:
+                    ai_decision = await self.trader.analyze_market_data(current_row, market_regime=current_regime)
             except Exception: ai_decision = "HOLD"
             
             if current_regime == 'NOISE' and ai_decision != "HOLD": ai_decision = "HOLD"
@@ -545,6 +549,7 @@ class BacktestEngine:
             cover_cost = size * price
             exit_fee = cover_cost * self.commission_rate
             self.balance += (gross_pnl - exit_fee)
+            entry_fee = (size * entry_price) * self.commission_rate
             # For reported trade PnL statistic, we include entry fee
             trade_pnl_report = gross_pnl - exit_fee - entry_fee
             net_pnl = trade_pnl_report # Use this for the logs
@@ -657,7 +662,8 @@ class BacktestEngine:
         # ── Cabecera de Aislamiento ─────────────────────────────────
         isolation_header = ""
         if self.isolation_enabled:
-            isolation_header = f"\n--- AISLAMIENTO ACTIVO: MODO {self.isolation_target.upper()} ---\n"
+            target_name = str(self.isolation_target).upper() if self.isolation_target else "UNKNOWN"
+            isolation_header = f"\n--- AISLAMIENTO ACTIVO: MODO {target_name} ---\n"
             
         report_str = f"""{isolation_header}
 --- PERFORMANCE REPORT ---
@@ -688,7 +694,8 @@ Latency Loss:   ${self.total_latency_loss:,.2f}
             plt.plot(equity_series['timestamp'], equity_series['equity'])
             title = f"Backtest: Return {percent_return:.2f}% | PF {profit_factor:.2f}"
             if self.isolation_enabled:
-                title = f"[ISOLATION: {self.isolation_target.upper()}] {title}"
+                target_name = str(self.isolation_target).upper() if self.isolation_target else "UNKNOWN"
+                title = f"[ISOLATION: {target_name}] {title}"
             plt.title(title)
             plt.xlabel("Date")
             plt.ylabel("Capital ($)")

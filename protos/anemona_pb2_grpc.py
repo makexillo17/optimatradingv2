@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-import protos.anemona_pb2 as anemona__pb2
+import protos.anemona_pb2 as anemona__pb2  # type: ignore
 
 GRPC_GENERATED_VERSION = '1.80.0'
 GRPC_VERSION = grpc.__version__

@@ -20,12 +20,15 @@ SYMBOL_API = "BTCUSD"
 
 # --- FUNCIONES ---
 
+from typing import cast, Any
+
 def get_market_data():
     """Descarga datos de Kraken y calcula EMAs."""
     try:
         exchange = ccxt.kraken()
         ohlcv = exchange.fetch_ohlcv(SYMBOL_CCXT, timeframe='1h', limit=100)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        columns = cast(Any, ['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df = pd.DataFrame(ohlcv, columns=columns)
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         
         # Calcular EMAs
