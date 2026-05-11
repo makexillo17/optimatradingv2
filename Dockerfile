@@ -16,8 +16,8 @@ RUN apt-get update && \
 
 # Copy and install Python dependencies first (layer caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip "setuptools<66" && \
+    pip install --no-cache-dir --no-build-isolation -r requirements.txt
 
 # Copy the rest of the application source
 COPY . .
