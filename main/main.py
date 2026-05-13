@@ -14,10 +14,10 @@ from dotenv import load_dotenv
 # ── Cargar variables de entorno desde .env ──────────────────────────
 load_dotenv()  # busca .env en la raíz del proyecto
 
-# Lectura temprana de la API key de Anthropic
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
-
-from fastapi import FastAPI                     #  ←  Import correcto, fuera de la clase
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+import json
 from loader.loader import MarketDataLoader as DataLoader
 from dispatcher.dispatcher import ModuleDispatcher
 from main.consensus import ConsensusAnalyzer
@@ -271,6 +271,20 @@ app = FastAPI(
     title="OptimaTrading V2 — Control API",
     description="API de control para el sistema de trading. Incluye hot-swap de modos.",
     version="2.1.0"
+)
+
+# Configuración de CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "https://optimatrading-optima-app.af5gdr.easypanel.host",
+        "https://optimatrading-v2.vercel.app",  # TODO: Reemplazar con URL de Vercel real
+        # "*" # Solo usar asterisco en dev si es estrictamente necesario
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
 )
 
 optimatrading = OptimatradingMain()
@@ -533,6 +547,56 @@ def list_engines():
         ]
     }
 
+# =====================================================================
+# TELEMETRY WEBSOCKET ENDPOINT
+# =====================================================================
+
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
+
+    async def broadcast(self, message: dict):
+        dead_connections = []
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                dead_connections.append(connection)
+        
+        for dead in dead_connections:
+            self.disconnect(dead)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/telemetry")
+async def websocket_telemetry(websocket: WebSocket):
+    await manager.connect(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                # Si el frontend envía un ping, respondemos con pong para latencia
+                if msg.get("type") == "ping":
+                    await websocket.send_json({
+                        "type": "pong",
+                        "timestamp": msg.get("timestamp")
+                    })
+            except json.JSONDecodeError:
+                pass
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
+    except Exception as e:
+        print(f"WS Error: {e}")
+        manager.disconnect(websocket)
 
 if __name__ == "__main__":
     import uvicorn
