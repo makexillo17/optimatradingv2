@@ -1,0 +1,189 @@
+@import 'tailwindcss';
+
+/* ═══════════════════════════════════════════════════════
+   𝔑𝔘𝔏𝔏 DESIGN SYSTEM — Noir / Brutalista
+   OptimaTrading V2 Frontend
+   ═══════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Color Palette ── */
+  --color-null-black: #000000;
+  --color-null-surface: #18181b;
+  --color-null-surface-hover: #27272a;
+  --color-null-accent: #a3e635;
+  --color-null-accent-dim: #65a30d;
+  --color-null-veto: #f97316;
+  --color-null-veto-dim: #c2410c;
+  --color-null-text: rgba(255, 255, 255, 0.9);
+  --color-null-text-dim: rgba(255, 255, 255, 0.5);
+  --color-null-text-ghost: rgba(255, 255, 255, 0.2);
+  --color-null-border: rgba(255, 255, 255, 0.1);
+  --color-null-border-hover: rgba(255, 255, 255, 0.25);
+  --color-null-glow-accent: rgba(163, 230, 53, 0.15);
+  --color-null-glow-veto: rgba(249, 115, 22, 0.15);
+
+  /* ── Typography ── */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* ── Spacing Scale ── */
+  --spacing-bento: 1rem;
+
+  /* ── Border Radius ── */
+  --radius-card: 0.75rem;
+  --radius-button: 0.5rem;
+
+  /* ── Transitions ── */
+  --ease-null: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Global Resets ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-null-surface-hover) transparent;
+}
+
+::selection {
+  background-color: var(--color-null-accent);
+  color: var(--color-null-black);
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: var(--color-null-black);
+  color: var(--color-null-text);
+  min-height: 100dvh;
+}
+
+/* ── Utility: Mono Font for Data ── */
+.font-data {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+/* ── Utility: Ghost Text ── */
+.text-ghost {
+  color: var(--color-null-text-ghost);
+}
+
+/* ── Bento Grid System ── */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(1, 1fr);
+  gap: var(--spacing-bento);
+  padding: var(--spacing-bento);
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+  .bento-grid {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 1.5rem;
+    gap: 1rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .bento-grid {
+    grid-template-columns: repeat(4, 1fr);
+    padding: 1.5rem;
+    gap: 1rem;
+  }
+}
+
+/* iPad Pro optimization */
+@media (min-width: 1024px) and (max-width: 1366px) {
+  .bento-grid {
+    padding: 2rem;
+    gap: 1rem;
+  }
+}
+
+/* ── Card Base ── */
+.bento-card {
+  background-color: var(--color-null-surface);
+  border: 1px solid var(--color-null-border);
+  border-radius: var(--radius-card);
+  padding: 1.25rem;
+  transition: border-color 0.3s var(--ease-null),
+              box-shadow 0.3s var(--ease-null),
+              transform 0.2s var(--ease-null);
+  position: relative;
+  overflow: hidden;
+}
+
+.bento-card:hover {
+  border-color: var(--color-null-border-hover);
+}
+
+.bento-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    600px circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+    rgba(255, 255, 255, 0.03),
+    transparent 40%
+  );
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s var(--ease-null);
+}
+
+.bento-card:hover::before {
+  opacity: 1;
+}
+
+/* ── Keyframes ── */
+@keyframes pulse-accent {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--color-null-glow-accent);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@keyframes pulse-veto {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 var(--color-null-glow-veto);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 8px transparent;
+  }
+}
+
+@keyframes orbit {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  92% { opacity: 1; }
+  93% { opacity: 0.8; }
+  94% { opacity: 1; }
+  96% { opacity: 0.6; }
+  97% { opacity: 1; }
+}
+
+@keyframes vibrate {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-1px); }
+  40% { transform: translateX(1px); }
+  60% { transform: translateX(-1px); }
+  80% { transform: translateX(1px); }
+}
+
