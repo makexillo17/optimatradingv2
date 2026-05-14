@@ -273,17 +273,13 @@ app = FastAPI(
     version="2.1.0"
 )
 
-# Configuración de CORS
+# PROTOCOLO NUCLEAR CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "https://optimatrading-optima-app.af5gdr.easypanel.host",
-        "https://optimatrading-v2.vercel.app",  # TODO: Reemplazar con URL de Vercel real
-        # "*" # Solo usar asterisco en dev si es estrictamente necesario
-    ],
+    allow_origins=["*"],  # Apertura total requerida para el Handshake con Vercel
+    allow_origin_regex=".*", # Requerido por FastAPI moderno al usar allow_credentials=True con "*"
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["*"],  # Vital para que pase la solicitud OPTIONS (Preflight)
     allow_headers=["*"],
 )
 
