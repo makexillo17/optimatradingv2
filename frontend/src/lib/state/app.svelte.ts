@@ -309,7 +309,7 @@ async function apiFetch<T>(endpoint: string, options: ApiOptions = {}): Promise<
 export async function startTrading(): Promise<void> {
 	addLog('INFO', 'Enviando comando de ignición...', 'API');
 	try {
-		const result = await apiFetch<{ status: string }>('/api/v1/trading/start', {
+		const result = await apiFetch<{ status: string }>('/engine/mode/consensus', {
 			method: 'POST'
 		});
 		appState.systemStatus = 'RUNNING';
@@ -324,9 +324,12 @@ export async function startTrading(): Promise<void> {
 export async function stopTrading(): Promise<void> {
 	addLog('INFO', 'Deteniendo sistema...', 'API');
 	try {
-		await apiFetch('/api/v1/trading/stop', { method: 'POST' });
+		await apiFetch('/engine/mode/isolation', { 
+			method: 'POST',
+			body: { target_engine: 'gap_sniper' }
+		});
 		appState.systemStatus = 'IDLE';
-		addLog('INFO', 'Sistema detenido correctamente', 'API');
+		addLog('INFO', 'Sistema en modo aislamiento (detenido para consenso)', 'API');
 	} catch (err) {
 		addLog('ERROR', `Error al detener: ${(err as Error).message}`, 'API');
 		throw err;
@@ -344,7 +347,7 @@ export function updateConfig(config: CalibrationConfig): void {
 	
 	configSyncTimeout = setTimeout(async () => {
 		try {
-			await apiFetch('/api/v1/config/update', {
+			await apiFetch('/engine/config', {
 				method: 'POST',
 				body: config
 			});
@@ -371,10 +374,9 @@ export async function runBacktest(params?: Record<string, unknown>): Promise<voi
 	addLog('INFO', 'Iniciando simulación interna...', 'BACKTEST');
 	appState.simulationResults = { status: 'RUNNING' };
 	try {
-		const result = await apiFetch<SimulationResults>('/api/v1/backtesting/run', {
-			method: 'POST',
-			body: params ?? {},
-			timeout: 120000 // Backtests can be long
+		// Calling the only available test endpoint for now
+		const result = await apiFetch<SimulationResults>('/test-sniper', {
+			method: 'GET',
 		});
 		appState.simulationResults = { ...result, status: 'COMPLETED' };
 		addLog('INFO', `Simulación completada | Retorno: ${result.totalReturn}%`, 'BACKTEST');
@@ -387,9 +389,9 @@ export async function runBacktest(params?: Record<string, unknown>): Promise<voi
 
 export async function fetchStatus(): Promise<void> {
 	try {
-		const result = await apiFetch<{ status: SystemStatus }>('/api/v1/trading/status');
-		appState.systemStatus = result.status;
-		addLog('INFO', `Estado del sistema: ${result.status}`, 'POLLING');
+		const result = await apiFetch<any>('/engine/status');
+		appState.systemStatus = result.mode === 'consensus' ? 'RUNNING' : 'IDLE';
+		addLog('INFO', `Estado del sistema: ${result.mode}`, 'POLLING');
 	} catch (err) {
 		addLog('WARN', `Polling fallido: ${(err as Error).message}`, 'POLLING');
 	}
